@@ -1,0 +1,35 @@
+{{ extends "global/Page.html" }}
+{{ block title }}Camera Access Consent{{ endblock }}
+
+{{ block content }}
+
+
+<p>
+  This experiment includes eye tracking to understand how you view information on the screen.
+</p>
+
+<p><b>How it works:</b></p>
+<ul>
+  <li>Your webcam captures images that are processed <b>only in your browser</b></li>
+  <li>No images or video are saved or transmitted</li>
+  <li>Only gaze coordinates (x, y screen positions) are recorded</li>
+  <li>All processing happens on your device</li>
+</ul>
+
+<div id="camera-test-section">
+  <button type="button" id="test-camera-btn" class="btn btn-primary">Test Camera Access</button>
+  <div id="camera-status"></div>
+  <video id="camera-preview" autoplay playsinline class="hidden"></video>
+</div>
+
+<input type="hidden" name="eyetrack_consent" id="eyetrack_consent" value="0">
+
+<div id="next-section" class="hidden">
+  <p class="text-success"><b>✓ Camera access granted</b></p>
+  {{ next_button }}
+</div>
+
+<script>{{ include_sibling 'consent.js' }}</script>
+
+
+{{ endblock }}

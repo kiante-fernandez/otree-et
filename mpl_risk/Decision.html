@@ -1,0 +1,134 @@
+{{ extends "global/Page.html" }}
+{{ block title }}Risk Task{{ endblock }}
+
+{{ block styles }}
+<style>
+#gaze-dot {
+    position: fixed;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: rgba(255, 0, 0, 0.5);
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    z-index: 9999;
+    display: none;
+}
+
+#tracking-status {
+    position: fixed;
+    top: 10px;
+    right: 10px;
+    padding: 5px 10px;
+    border-radius: 4px;
+    font-size: 12px;
+    z-index: 1000;
+}
+.status-active { background: #d4edda; color: #155724; }
+.status-inactive { background: #f8d7da; color: #721c24; }
+
+#webcam-video {
+    position: fixed;
+    bottom: 10px;
+    right: 10px;
+    width: 120px;
+    height: 90px;
+    border: 2px solid #333;
+    border-radius: 4px;
+    z-index: 100;
+    opacity: 0.5;
+    background: #000;
+}
+
+#webcam-video:hover {
+    opacity: 1;
+}
+</style>
+{{ endblock }}
+
+{{ block content }}
+
+<div id="tracking-status" class="status-inactive">Eye tracking: initializing...</div>
+<div id="gaze-dot"></div>
+<video id="webcam-video" autoplay playsinline muted></video>
+
+<p>
+  For each row, choose between <b>Option A</b> (guaranteed payment) and <b>Option B</b> (lottery).
+</p>
+
+<p>
+  <b>Option B</b> is always: {{ prob_percent }}% chance of {{ C.LOTTERY_HIGH }}, {{ prob_percent }}% chance of {{ C.LOTTERY_LOW }}
+</p>
+
+<p>
+  At the end, one row will be randomly selected for payment.
+</p>
+
+<input type="hidden" name="eyetrack_sample_count" id="eyetrack_sample_count" value="0">
+<input type="hidden" name="eyetrack_gaze_data" id="eyetrack_gaze_data" value="[]">
+
+<table class="table">
+  <thead>
+    <tr>
+      <th>Row</th>
+      <th>Option A (Safe)</th>
+      <th>Option B (Lottery)</th>
+      <th>Your Choice</th>
+    </tr>
+  </thead>
+  <tbody>
+    {{ for row_data in rows }}
+    <tr>
+      <td>{{ row_data.row }}</td>
+      <td>{{ row_data.safe_amount }}</td>
+      <td>{{ prob_percent }}% chance of {{ C.LOTTERY_HIGH }}, {{ prob_percent }}% chance of {{ C.LOTTERY_LOW }}</td>
+      <td>{{ formfield row_data.field_name }}</td>
+    </tr>
+    {{ endfor }}
+  </tbody>
+</table>
+
+{{ next_button }}
+
+<script type="module">
+import { loadWebEyeTrack } from '{{ static "webeyetrack-loader.js" }}';
+// Pre-load WebEyeTrack (it may already be cached from Calibration page)
+loadWebEyeTrack().catch(err => console.warn('WebEyeTrack preload failed:', err));
+</script>
+
+<script>{{ include_sibling 'gaze_tracker.js' }}</script>
+<script>
+// Initialize gaze tracker
+const tracker = new SimpleGazeTracker({
+    participantCode: '{{ participant.code }}',
+    sessionCode: '{{ session.code }}',
+    pageName: 'Decision',
+    flushIntervalMs: {{ C.FLUSH_INTERVAL_MS }},
+    videoElementId: 'webcam-video'
+});
+
+document.addEventListener('DOMContentLoaded', async () => {
+    const initialized = await tracker.init();
+    if (initialized) {
+        tracker.startTracking();
+    }
+
+    // Intercept form submission to ensure gaze data is saved
+    const form = document.querySelector('form');
+    if (form) {
+        form.addEventListener('submit', async function(e) {
+            // Prevent default to wait for tracking to stop
+            e.preventDefault();
+
+            // Stop tracking and wait for final flush
+            await tracker.stopTracking();
+
+            // Remove this listener and submit normally
+            form.removeEventListener('submit', arguments.callee);
+            form.submit();
+        });
+    }
+});
+</script>
+
+{{ endblock }}

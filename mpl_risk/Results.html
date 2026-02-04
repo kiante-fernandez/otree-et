@@ -1,0 +1,30 @@
+{{ extends "global/Page.html" }}
+{{ block title }}Results{{ endblock }}
+
+{{ block content }}
+
+
+<p>
+  Row <b>{{ player.selected_row }}</b> was randomly selected for payment.
+</p>
+
+{{ if selected_choice == 1 }}
+  <p>You chose <b>Option A (Safe)</b> in this row.</p>
+  <p>Your payment: <b>€{{ safe_amount }}</b></p>
+{{ else }}
+  <p>You chose <b>Option B (Lottery)</b> in this row.</p>
+  {{ if player.lottery_outcome == 1 }}
+    <p>The lottery result: <b>€{{ C.LOTTERY_HIGH }}</b> (high outcome)</p>
+  {{ else }}
+    <p>The lottery result: <b>€{{ C.LOTTERY_LOW }}</b> (low outcome)</p>
+  {{ endif }}
+{{ endif }}
+
+<p>
+  Your final payoff: <b>€{{ player.final_payoff }}</b>
+</p>
+
+{{ next_button }}
+
+
+{{ endblock }}

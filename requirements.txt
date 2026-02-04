@@ -1,0 +1,6 @@
+# oTree 5+ with eye tracking dependencies
+# Install with: pip install -r requirements.txt
+
+otree>=5.0
+uvicorn
+starlette

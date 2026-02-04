@@ -1,0 +1,182 @@
+{{ extends "global/Page.html" }}
+{{ block title }}Eye Tracking Calibration{{ endblock }}
+
+{{ block styles }}
+<style>
+#calibration-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: #1a1a2e;
+    z-index: 9999;
+    display: none;
+}
+
+.calibration-point {
+    position: absolute;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    background: #e63946;
+    transform: translate(-50%, -50%);
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.3s, background 0.3s;
+}
+
+.calibration-point.active {
+    opacity: 1;
+    animation: pulse 1s infinite;
+}
+
+.calibration-point.clicked {
+    background: #2a9d8f;
+    opacity: 0.5;
+}
+
+@keyframes pulse {
+    0%, 100% { transform: translate(-50%, -50%) scale(1); }
+    50% { transform: translate(-50%, -50%) scale(1.2); }
+}
+
+#pre-calibration {
+    max-width: 600px;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+#calibration-complete {
+    max-width: 600px;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+.calibration-instructions {
+    background: #f8f9fa;
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 20px;
+}
+
+#loading-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.8);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    z-index: 10000;
+    color: white;
+}
+
+#loading-overlay.hidden {
+    display: none;
+}
+
+#loading-overlay .spinner {
+    width: 50px;
+    height: 50px;
+    border: 4px solid rgba(255, 255, 255, 0.3);
+    border-top-color: white;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin-bottom: 20px;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+#webcam-video {
+    position: fixed;
+    bottom: 10px;
+    right: 10px;
+    width: 160px;
+    height: 120px;
+    border: 2px solid #333;
+    border-radius: 4px;
+    z-index: 100;
+    background: #000;
+}
+
+#webcam-video.hidden {
+    display: none;
+}
+</style>
+{{ endblock }}
+
+{{ block content }}
+
+<div id="loading-overlay">
+    <div class="spinner"></div>
+    <p>Loading eye tracking model...</p>
+    <p style="font-size: 0.9em; opacity: 0.7;">This may take a moment on first load.</p>
+</div>
+
+<video id="webcam-video" autoplay playsinline muted></video>
+
+<div id="pre-calibration">
+    <div class="calibration-instructions">
+        <h4>Calibration Instructions</h4>
+        <ol>
+            <li>You will see {{ num_points }} red dots appear one at a time</li>
+            <li>Look directly at each dot and click on it</li>
+            <li>Keep your head still during calibration</li>
+            <li>The dot will turn green when clicked</li>
+        </ol>
+        <p><b>Tip:</b> Sit comfortably at arm's length from your screen.</p>
+    </div>
+    <button type="button" id="start-calibration-btn" class="btn btn-primary btn-lg">Start Calibration</button>
+</div>
+
+<div id="calibration-overlay">
+    <div class="calibration-point" style="left: 10%; top: 10%;"></div>
+    <div class="calibration-point" style="left: 50%; top: 10%;"></div>
+    <div class="calibration-point" style="left: 90%; top: 10%;"></div>
+    <div class="calibration-point" style="left: 10%; top: 50%;"></div>
+    <div class="calibration-point" style="left: 50%; top: 50%;"></div>
+    <div class="calibration-point" style="left: 90%; top: 50%;"></div>
+    <div class="calibration-point" style="left: 10%; top: 90%;"></div>
+    <div class="calibration-point" style="left: 50%; top: 90%;"></div>
+    <div class="calibration-point" style="left: 90%; top: 90%;"></div>
+</div>
+
+<input type="hidden" name="eyetrack_calibration_rmse" id="eyetrack_calibration_rmse" value="">
+
+<div id="calibration-complete" class="hidden">
+    <div class="alert alert-success">
+        <h4>Calibration Complete!</h4>
+        <p>Your eye tracking has been calibrated successfully.</p>
+    </div>
+    <p>You can recalibrate if needed, or proceed to the task.</p>
+    <button type="button" id="recalibrate-btn" class="btn btn-secondary">Recalibrate</button>
+    {{ next_button }}
+</div>
+
+<script type="module">
+import { loadWebEyeTrack } from '{{ static "webeyetrack-loader.js" }}';
+
+// Load WebEyeTrack and hide loading overlay when ready
+loadWebEyeTrack().then(() => {
+    document.getElementById('loading-overlay').classList.add('hidden');
+    console.log('WebEyeTrack loaded successfully');
+}).catch(error => {
+    console.error('Failed to load WebEyeTrack:', error);
+    document.getElementById('loading-overlay').innerHTML = `
+        <p style="color: #ff6b6b;">Error loading eye tracking model.</p>
+        <p>Please refresh the page to try again.</p>
+        <p style="font-size: 0.8em; opacity: 0.7;">${error.message}</p>
+    `;
+});
+</script>
+
+<script>{{ include_sibling 'gaze_tracker.js' }}</script>
+<script>{{ include_sibling 'calibration.js' }}</script>
+
+{{ endblock }}

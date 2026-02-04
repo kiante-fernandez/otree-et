@@ -1,0 +1,10 @@
+name: otree-env
+channels:
+  - defaults
+dependencies:
+  - python=3.11
+  - pip
+  - pip:
+    - otree>=5.0
+    - uvicorn
+    - starlette
