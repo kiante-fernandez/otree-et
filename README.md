@@ -1,9 +1,8 @@
 # oTree — Webcam Eye Tracking Example
 
-This is the oTree example for the
-[Webcam Eye Tracking Guide](https://kiante-fernandez.github.io/webcam-eyetracking/).
-The guide covers webcam-based gaze estimation in behavioral experiments;
-this repo shows one working integration in [oTree](https://www.otree.org/).
+A working integration of in-browser webcam eye tracking
+([WebEyeTrack](https://github.com/RedForestAI/WebEyeTrack)) for
+[oTree](https://www.otree.org/) experiments.
 
 The demo task is a Multiple Price List (MPL) for measuring risk
 preferences — a common task in behavioral economics. You can run it as-is
@@ -256,6 +255,3 @@ form data — no streaming server required.
 
 If you use this in published research, please cite both this repository
 (see [`CITATION.cff`](CITATION.cff)) and the upstream WebEyeTrack project.
-
-For other frameworks, see the
-[Webcam Eye Tracking Guide](https://kiante-fernandez.github.io/webcam-eyetracking/).
