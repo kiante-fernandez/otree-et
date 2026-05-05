@@ -14,10 +14,14 @@ Everything else falls through to oTree's normal ASGI app.
 
 Usage
 -----
-    uvicorn asgi:application --reload --port 8000
+    # Local development:
+    uvicorn asgi:application --port 8000
 
-For deployment, set the Procfile to start uvicorn instead of `otree
-prodserver` so this wrapper is in the request path.
+    # Production (the included Procfile uses this form):
+    uvicorn asgi:application --host 0.0.0.0 --port $PORT
+
+The wrapper must be in the request path; running `otree prodserver` or
+`otree devserver` directly bypasses it and the model 404s.
 """
 
 import os

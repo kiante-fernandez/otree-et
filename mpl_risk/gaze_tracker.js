@@ -41,8 +41,7 @@ class SimpleGazeTracker {
     try {
       await this.waitForWebEyeTrack();
 
-      const videoElement = document.getElementById(this.videoElementId);
-      if (!videoElement) {
+      if (!document.getElementById(this.videoElementId)) {
         throw new Error(`Video element "${this.videoElementId}" not found`);
       }
 
@@ -90,6 +89,9 @@ class SimpleGazeTracker {
     const screenX = (normX + 0.5) * window.innerWidth;
     const screenY = (normY + 0.5) * window.innerHeight;
 
+    // WebEyeTrack 0.0.2 does not expose a real per-sample confidence,
+    // so we record a placeholder driven by gazeState. Treat as ordinal,
+    // not absolute.
     this.allSamples.push({
       x: screenX,
       y: screenY,
