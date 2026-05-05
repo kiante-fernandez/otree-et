@@ -1,0 +1,33 @@
+cff-version: 1.2.0
+title: "otree-et: Webcam Eye Tracking for oTree"
+message: "If you use this software, please cite it using the metadata below and also cite the upstream WebEyeTrack project."
+type: software
+authors:
+  - family-names: Fernandez
+    given-names: "Kianté"
+repository-code: "https://github.com/kiante-fernandez/otree-et"
+license: MIT
+keywords:
+  - oTree
+  - eye tracking
+  - WebEyeTrack
+  - webcam
+  - experimental economics
+  - multiple price list
+  - risk elicitation
+references:
+  - type: software
+    title: WebEyeTrack
+    authors:
+      - name: RedForestAI
+    repository-code: "https://github.com/RedForestAI/WebEyeTrack"
+  - type: software
+    title: oTree
+    authors:
+      - family-names: Chen
+        given-names: "Daniel L."
+      - family-names: Schonger
+        given-names: Martin
+      - family-names: Wickens
+        given-names: Chris
+    repository-code: "https://github.com/oTree-org/otree"

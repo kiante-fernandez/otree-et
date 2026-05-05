@@ -1,6 +1,12 @@
-# oTree 5+ with eye tracking dependencies
+# oTree 5+ with eye-tracking dependencies.
 # Install with: pip install -r requirements.txt
+#
+# Pinned major versions: oTree's templating syntax has changed across major
+# releases, and this project is verified against 6.x.
+otree>=6.0,<7.0
 
-otree>=5.0
-uvicorn
-starlette
+# uvicorn + starlette host the minimal ASGI wrapper in asgi.py that mounts
+# the WebEyeTrack model files at /web/. See asgi.py for why that mount is
+# unavoidable on `otree devserver` alone.
+uvicorn[standard]>=0.20
+starlette>=0.27

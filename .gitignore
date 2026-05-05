@@ -31,9 +31,6 @@ db.sqlite3
 _rooms/
 _static_root/
 
-# Eye tracking data (runtime generated)
-gaze_data/
-
 # IDE
 .idea/
 .vscode/

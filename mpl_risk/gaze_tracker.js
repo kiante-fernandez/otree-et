@@ -1,71 +1,70 @@
-// OTAI SECTION: header
-
 /**
  * SimpleGazeTracker - Webcam-based gaze tracking using WebEyeTrack
- * Integrates with WebEyeTrack library for real gaze estimation
- * Falls back to mock data if WebEyeTrack fails to initialize
+ *
+ * Collects gaze samples in memory and writes them into the page's hidden
+ * form fields on submit, so the data is saved by oTree alongside the
+ * participant's choices:
+ *
+ *   eyetrack_sample_count  — number of samples recorded
+ *   eyetrack_gaze_data     — JSON array of samples
+ *   eyetrack_init_status   — 'ok' | 'no_consent' | 'init_failed' | 'unknown'
+ *
+ * If WebEyeTrack fails to initialize, mock samples are generated so the rest
+ * of the task remains usable for debugging. Mock samples are flagged via
+ * `is_mock: true` AND the participant-level `eyetrack_init_status` is set to
+ * 'init_failed' — filter on either when analyzing data.
  */
 class SimpleGazeTracker {
   constructor(config) {
-    this.participantCode = config.participantCode;
-    this.sessionCode = config.sessionCode;
-    this.pageName = config.pageName;
-    this.flushIntervalMs = config.flushIntervalMs || 1000;
+    config = config || {};
     this.videoElementId = config.videoElementId || 'webcam-video';
 
-    this.samples = [];
-    this.allSamples = [];  // Keep all samples for form submission
+    this.allSamples = [];
     this.isTracking = false;
     this.webcamClient = null;
     this.webEyeTrackProxy = null;
-    this.flushTimer = null;
     this.isInitialized = false;
     this.latestGazeResult = null;
     this.useMockData = false;
-    this.totalSamplesSent = 0;
+    this.initStatus = 'unknown';
   }
 
   async init() {
-    // Check if we have camera consent from previous page
     const hasConsent = sessionStorage.getItem('eyetrack_consent') === 'true';
     if (!hasConsent) {
       console.warn('GazeTracker: No camera consent found');
+      this.initStatus = 'no_consent';
       this.updateStatus('no consent', false);
       return false;
     }
 
     try {
-      // Wait for WebEyeTrack to be available
       await this.waitForWebEyeTrack();
 
-      // Get video element reference
       const videoElement = document.getElementById(this.videoElementId);
       if (!videoElement) {
         throw new Error(`Video element "${this.videoElementId}" not found`);
       }
 
-      // Initialize WebcamClient and WebEyeTrackProxy
       const { WebcamClient, WebEyeTrackProxy } = window.WebEyeTrack;
-
       this.webcamClient = new WebcamClient(this.videoElementId);
       this.webEyeTrackProxy = new WebEyeTrackProxy(this.webcamClient);
-
-      // Set up gaze results callback
       this.webEyeTrackProxy.onGazeResults = (gazeResult) => {
         this.handleGazeResult(gazeResult);
       };
 
       this.isInitialized = true;
       this.useMockData = false;
+      this.initStatus = 'ok';
       this.updateStatus('initialized', true);
-      console.log('GazeTracker: WebEyeTrack initialized successfully');
       return true;
 
     } catch (error) {
       console.error('GazeTracker: WebEyeTrack initialization failed:', error);
-      console.log('GazeTracker: Falling back to mock data');
+      console.warn('GazeTracker: Falling back to mock data — eyetrack_init_status will be "init_failed"');
       this.useMockData = true;
       this.isInitialized = true;
+      this.initStatus = 'init_failed';
       this.updateStatus('mock mode', true);
       return true;
     }
@@ -86,16 +85,12 @@ class SimpleGazeTracker {
 
     this.latestGazeResult = gazeResult;
 
-    // Convert normalized PoG [-0.5, 0.5] to screen pixels
-    // normPog[0] is X, normPog[1] is Y
-    // Origin is screen center, positive Y is down, positive X is right
     const normX = gazeResult.normPog[0];
     const normY = gazeResult.normPog[1];
-
     const screenX = (normX + 0.5) * window.innerWidth;
     const screenY = (normY + 0.5) * window.innerHeight;
 
-    const sample = {
+    this.allSamples.push({
       x: screenX,
       y: screenY,
       norm_x: normX,
@@ -103,24 +98,18 @@ class SimpleGazeTracker {
       gaze_state: gazeResult.gazeState,
       confidence: gazeResult.gazeState === 'open' ? 0.9 : 0.1,
       t_perf: performance.now(),
-      timestamp: gazeResult.timestamp
-    };
+      timestamp: gazeResult.timestamp,
+    });
 
-    this.samples.push(sample);
-    this.allSamples.push(sample);  // Keep for form submission
-
-    // Update visual gaze dot if present
     this.updateGazeDot(screenX, screenY);
   }
 
   collectMockGaze() {
     if (!this.isTracking || !this.useMockData) return;
 
-    // Generate mock gaze data near screen center with some noise
     const centerX = window.innerWidth / 2;
     const centerY = window.innerHeight / 2;
     const noise = 50;
-
     const screenX = centerX + (Math.random() - 0.5) * noise * 2;
     const screenY = centerY + (Math.random() - 0.5) * noise * 2;
 
@@ -133,17 +122,13 @@ class SimpleGazeTracker {
       confidence: 0.8 + Math.random() * 0.2,
       t_perf: performance.now(),
       timestamp: performance.now(),
-      is_mock: true
+      is_mock: true,
     };
 
-    this.samples.push(sample);
-    this.allSamples.push(sample);  // Keep for form submission
+    this.allSamples.push(sample);
     this.latestGazeResult = { normPog: [sample.norm_x, sample.norm_y], gazeState: 'open' };
-
-    // Update visual gaze dot
     this.updateGazeDot(screenX, screenY);
 
-    // Continue collecting
     requestAnimationFrame(() => this.collectMockGaze());
   }
 
@@ -164,115 +149,38 @@ class SimpleGazeTracker {
     }
   }
 
-  updateSampleCountInput() {
+  writeFormFields() {
     const countInput = document.getElementById('eyetrack_sample_count');
-    if (countInput) {
-      countInput.value = this.totalSamplesSent.toString();
-    }
-  }
+    if (countInput) countInput.value = this.allSamples.length.toString();
 
-  updateGazeDataInput() {
     const gazeDataInput = document.getElementById('eyetrack_gaze_data');
-    if (gazeDataInput) {
-      gazeDataInput.value = JSON.stringify(this.allSamples);
-    }
+    if (gazeDataInput) gazeDataInput.value = JSON.stringify(this.allSamples);
+
+    const statusInput = document.getElementById('eyetrack_init_status');
+    if (statusInput) statusInput.value = this.initStatus;
   }
 
   startTracking() {
     if (this.isTracking || !this.isInitialized) return;
-
     this.isTracking = true;
     this.updateStatus('active', true);
-    this.recordEvent('tracking_started');
-
-    // If using mock data, start the mock collection loop
     if (this.useMockData) {
       this.collectMockGaze();
-    }
-
-    // Start periodic flush to server
-    this.flushTimer = setInterval(() => this.flush(), this.flushIntervalMs);
-  }
-
-  async flush() {
-    if (this.samples.length === 0) return;
-
-    const samplesToSend = this.samples.slice();
-    this.samples = [];
-
-    try {
-      const response = await fetch('/record_gaze/', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          participant_code: this.participantCode,
-          session_code: this.sessionCode,
-          page: this.pageName,
-          samples: samplesToSend
-        })
-      });
-
-      if (!response.ok) {
-        // Put samples back in buffer for retry
-        this.samples = samplesToSend.concat(this.samples);
-        console.warn('GazeTracker: Flush failed, will retry');
-      } else {
-        // Update total samples sent counter
-        this.totalSamplesSent += samplesToSend.length;
-        this.updateSampleCountInput();
-      }
-    } catch (error) {
-      // Put samples back in buffer for retry
-      this.samples = samplesToSend.concat(this.samples);
-      console.error('GazeTracker: Flush error:', error);
-    }
-  }
-
-  async recordEvent(eventType) {
-    try {
-      await fetch('/record_event/', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          participant_code: this.participantCode,
-          session_code: this.sessionCode,
-          page: this.pageName,
-          event_type: eventType
-        })
-      });
-    } catch (error) {
-      console.error('GazeTracker: Event recording failed:', error);
     }
   }
 
   async stopTracking() {
     if (!this.isTracking) return;
-
     this.isTracking = false;
     this.updateStatus('stopped', false);
 
-    // Clear flush timer
-    if (this.flushTimer) {
-      clearInterval(this.flushTimer);
-      this.flushTimer = null;
-    }
+    this.writeFormFields();
 
-    // Final flush
-    await this.flush();
-    await this.recordEvent('tracking_stopped');
-
-    // Ensure final sample count and gaze data are set in form fields
-    this.updateSampleCountInput();
-    this.updateGazeDataInput();
-
-    // Hide gaze dot
     const gazeDot = document.getElementById('gaze-dot');
-    if (gazeDot) {
-      gazeDot.style.display = 'none';
-    }
+    if (gazeDot) gazeDot.style.display = 'none';
   }
 
-  // Get current gaze position (for calibration validation)
+  // Get current gaze position (for calibration validation).
   getCurrentGaze() {
     if (this.latestGazeResult) {
       const normX = this.latestGazeResult.normPog[0];
@@ -280,16 +188,11 @@ class SimpleGazeTracker {
       return {
         x: (normX + 0.5) * window.innerWidth,
         y: (normY + 0.5) * window.innerHeight,
-        gazeState: this.latestGazeResult.gazeState
+        gazeState: this.latestGazeResult.gazeState,
       };
     }
     return null;
   }
 }
 
-// OTAI SECTION: functions
-
-// Export for use in templates
 window.SimpleGazeTracker = SimpleGazeTracker;
-
-// OTAI SECTION: footer

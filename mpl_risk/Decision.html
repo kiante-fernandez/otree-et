@@ -3,30 +3,8 @@
 
 {{ block styles }}
 <style>
-#gaze-dot {
-    position: fixed;
-    width: 20px;
-    height: 20px;
-    border-radius: 50%;
-    background: rgba(255, 0, 0, 0.5);
-    transform: translate(-50%, -50%);
-    pointer-events: none;
-    z-index: 9999;
-    display: none;
-}
-
-#tracking-status {
-    position: fixed;
-    top: 10px;
-    right: 10px;
-    padding: 5px 10px;
-    border-radius: 4px;
-    font-size: 12px;
-    z-index: 1000;
-}
-.status-active { background: #d4edda; color: #155724; }
-.status-inactive { background: #f8d7da; color: #721c24; }
-
+/* Page-specific styles for the webcam preview. Shared #gaze-dot, #tracking-status,
+   .status-active/.status-inactive live in _static/styles.css. */
 #webcam-video {
     position: fixed;
     bottom: 10px;
@@ -39,10 +17,7 @@
     opacity: 0.5;
     background: #000;
 }
-
-#webcam-video:hover {
-    opacity: 1;
-}
+#webcam-video:hover { opacity: 1; }
 </style>
 {{ endblock }}
 
@@ -57,7 +32,7 @@
 </p>
 
 <p>
-  <b>Option B</b> is always: {{ prob_percent }}% chance of {{ C.LOTTERY_HIGH }}, {{ prob_percent }}% chance of {{ C.LOTTERY_LOW }}
+  <b>Option B</b> is always: {{ prob_high_percent }}% chance of {{ C.LOTTERY_HIGH }}, {{ prob_low_percent }}% chance of {{ C.LOTTERY_LOW }}
 </p>
 
 <p>
@@ -66,6 +41,8 @@
 
 <input type="hidden" name="eyetrack_sample_count" id="eyetrack_sample_count" value="0">
 <input type="hidden" name="eyetrack_gaze_data" id="eyetrack_gaze_data" value="[]">
+<input type="hidden" name="eyetrack_init_status" id="eyetrack_init_status" value="unknown">
+<input type="hidden" name="eyetrack_runtime_error" id="eyetrack_runtime_error" value="">
 
 <table class="table">
   <thead>
@@ -81,7 +58,7 @@
     <tr>
       <td>{{ row_data.row }}</td>
       <td>{{ row_data.safe_amount }}</td>
-      <td>{{ prob_percent }}% chance of {{ C.LOTTERY_HIGH }}, {{ prob_percent }}% chance of {{ C.LOTTERY_LOW }}</td>
+      <td>{{ prob_high_percent }}% chance of {{ C.LOTTERY_HIGH }}, {{ prob_low_percent }}% chance of {{ C.LOTTERY_LOW }}</td>
       <td>{{ formfield row_data.field_name }}</td>
     </tr>
     {{ endfor }}
@@ -98,14 +75,25 @@ loadWebEyeTrack().catch(err => console.warn('WebEyeTrack preload failed:', err))
 
 <script>{{ include_sibling 'gaze_tracker.js' }}</script>
 <script>
-// Initialize gaze tracker
-const tracker = new SimpleGazeTracker({
-    participantCode: '{{ participant.code }}',
-    sessionCode: '{{ session.code }}',
-    pageName: 'Decision',
-    flushIntervalMs: {{ C.FLUSH_INTERVAL_MS }},
-    videoElementId: 'webcam-video'
-});
+const tracker = new SimpleGazeTracker({ videoElementId: 'webcam-video' });
+
+// Capture the first uncaught error so it survives form submit. Non-empty
+// eyetrack_runtime_error in the data flags participants whose tracking may
+// have stopped mid-task.
+(function captureFirstError() {
+    const input = document.getElementById('eyetrack_runtime_error');
+    function record(message) {
+        if (input && !input.value) input.value = message.slice(0, 1000);
+    }
+    window.addEventListener('error', (e) => {
+        const where = e.filename ? ` (${e.filename}:${e.lineno})` : '';
+        record(`${e.message || 'unknown error'}${where}`);
+    });
+    window.addEventListener('unhandledrejection', (e) => {
+        const reason = e.reason && (e.reason.stack || e.reason.message || String(e.reason));
+        record(`unhandledrejection: ${reason || 'unknown'}`);
+    });
+})();
 
 document.addEventListener('DOMContentLoaded', async () => {
     const initialized = await tracker.init();
@@ -113,20 +101,20 @@ document.addEventListener('DOMContentLoaded', async () => {
         tracker.startTracking();
     }
 
-    // Intercept form submission to ensure gaze data is saved
+    // The form submit listener has to drop itself before re-submitting,
+    // otherwise the second submit would be intercepted again (infinite loop).
     const form = document.querySelector('form');
     if (form) {
-        form.addEventListener('submit', async function(e) {
-            // Prevent default to wait for tracking to stop
+        let submitting = false;
+        async function onSubmit(e) {
+            if (submitting) return;
             e.preventDefault();
-
-            // Stop tracking and wait for final flush
+            submitting = true;
             await tracker.stopTracking();
-
-            // Remove this listener and submit normally
-            form.removeEventListener('submit', arguments.callee);
+            form.removeEventListener('submit', onSubmit);
             form.submit();
-        });
+        }
+        form.addEventListener('submit', onSubmit);
     }
 });
 </script>

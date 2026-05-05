@@ -135,17 +135,9 @@
     <button type="button" id="start-calibration-btn" class="btn btn-primary btn-lg">Start Calibration</button>
 </div>
 
-<div id="calibration-overlay">
-    <div class="calibration-point" style="left: 10%; top: 10%;"></div>
-    <div class="calibration-point" style="left: 50%; top: 10%;"></div>
-    <div class="calibration-point" style="left: 90%; top: 10%;"></div>
-    <div class="calibration-point" style="left: 10%; top: 50%;"></div>
-    <div class="calibration-point" style="left: 50%; top: 50%;"></div>
-    <div class="calibration-point" style="left: 90%; top: 50%;"></div>
-    <div class="calibration-point" style="left: 10%; top: 90%;"></div>
-    <div class="calibration-point" style="left: 50%; top: 90%;"></div>
-    <div class="calibration-point" style="left: 90%; top: 90%;"></div>
-</div>
+<!-- Dots are injected by calibration.js from js_vars.calibration_points
+     (defined in get_calibration_points() in __init__.py). -->
+<div id="calibration-overlay"></div>
 
 <input type="hidden" name="eyetrack_calibration_rmse" id="eyetrack_calibration_rmse" value="">
 
@@ -153,6 +145,14 @@
     <div class="alert alert-success">
         <h4>Calibration Complete!</h4>
         <p>Your eye tracking has been calibrated successfully.</p>
+        <p>
+            Calibration error: <span id="calibration-rmse-value">—</span> pixels
+            (lower is better).
+        </p>
+        <p id="calibration-rmse-hint" class="hidden">
+            Calibration looks rough — recalibrating with steadier head position
+            often helps.
+        </p>
     </div>
     <p>You can recalibrate if needed, or proceed to the task.</p>
     <button type="button" id="recalibrate-btn" class="btn btn-secondary">Recalibrate</button>
@@ -162,10 +162,8 @@
 <script type="module">
 import { loadWebEyeTrack } from '{{ static "webeyetrack-loader.js" }}';
 
-// Load WebEyeTrack and hide loading overlay when ready
 loadWebEyeTrack().then(() => {
     document.getElementById('loading-overlay').classList.add('hidden');
-    console.log('WebEyeTrack loaded successfully');
 }).catch(error => {
     console.error('Failed to load WebEyeTrack:', error);
     document.getElementById('loading-overlay').innerHTML = `

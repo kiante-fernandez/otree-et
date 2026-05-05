@@ -1,423 +1,278 @@
-# Adding WebEyeTrack Eye Tracking to oTree 5+
+# oTree — Webcam Eye Tracking Example
 
-This project demonstrates webcam-based eye tracking in an oTree experiment using the WebEyeTrack library.
+> Part of the **[Webcam Eye Tracking Guide](https://kiante-fernandez.github.io/webcam-eyetracking/)** — see the
+> parent site for an overview of webcam-based gaze estimation in
+> behavioral experiments and examples in other frameworks. This repository
+> is the worked example for **[oTree](https://www.otree.org/)** experiments.
 
-## Table of Contents
+The integration is small: a 25-line ASGI wrapper that mounts
+[WebEyeTrack](https://github.com/RedForestAI/WebEyeTrack)'s model files at
+`/web/`, a 200-line `SimpleGazeTracker` class, and four hidden form fields.
+No streaming server, no custom data endpoints — gaze samples ride the
+standard form submit.
 
-1. [Installation](#installation)
-2. [Why Not `otree devserver`?](#why-not-otree-devserver)
-3. [oTree Hub Compatibility](#otree-hub-compatibility)
-4. [Architecture](#architecture)
-5. [Project Structure](#project-structure)
-6. [Running the Server](#running-the-server)
-7. [Data Storage](#data-storage)
-8. [Common Issues](#common-issues)
-9. [Step-by-Step Guide: Adding to Any oTree Project](#step-by-step-guide-adding-to-any-otree-project)
+The demo task is a **Multiple Price List (MPL)** risk-elicitation
+experiment, the standard tool for measuring risk preferences in behavioral
+economics. Walk the demo to see the pieces in action; then copy the
+eye-tracking files into your own oTree app.
 
 ---
 
-## Installation
+## Try the demo
 
-### Prerequisites
+You'll need:
 
-- Python 3.8+
-- pip or conda
-
-### Install Dependencies
-
-**Option 1: Using conda (recommended)**
+- **Python 3.11+** (the environment file pins 3.11 explicitly)
+- **A working webcam** and a Chromium-based or Firefox browser. WebEyeTrack
+  has not been tested on Safari.
+- ~5 minutes for first run (the WebEyeTrack module is fetched from CDN the
+  first time the calibration page loads).
 
 ```bash
-# Create environment from environment.yml
+git clone https://github.com/kiante-fernandez/otree-et
+cd otree-et
+
+# Option A: conda
 conda env create -f environment.yml
-
-# Activate
 conda activate otree-env
-```
 
-**Option 2: Using pip**
-
-```bash
-# Create virtual environment
+# Option B: venv
 python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# Install requirements
-pip install -r requirements.txt
-```
-
-### Required Packages
-
-The `requirements.txt` includes:
-
-| Package | Purpose |
-|---------|---------|
-| `otree>=5.0` | oTree framework |
-| `uvicorn[standard]` | ASGI server for custom routing |
-| `starlette` | Custom route handling in asgi.py |
-
-### Initialize Database
-
-```bash
-otree resetdb --noinput
-```
-
----
-
-## Why Not `otree devserver`?
-
-**The Problem:** oTree 5+ completely ignores Django's URL routing system.
-
-When you run `otree devserver`, it starts oTree's internal Starlette ASGI server. This server:
-- Only knows about oTree's built-in routes (pages, admin, static files)
-- Does NOT read `ROOT_URLCONF` or any `urls.py` file
-- Provides NO mechanism to register custom endpoints
-
-**What we needed:**
-- Custom endpoints (`/record_gaze/`, `/record_event/`) to receive gaze data in real-time
-- A way to serve WebEyeTrack model files from `/web/`
-
-**The Solution:**
-We created a custom ASGI wrapper (`asgi.py`) that:
-1. Intercepts incoming requests
-2. Routes custom paths to our Starlette handlers
-3. Passes everything else to oTree's ASGI app
-
-This requires running `uvicorn asgi:application` instead of `otree devserver`.
-
-### Key Discovery
-
-oTree 5+ uses **Starlette ASGI routing**, NOT Django URL routing. The `ROOT_URLCONF` setting is completely ignored. This means:
-- Adding URLs to `urls.py` does NOT work
-- Custom endpoints return 404
-- You must use a custom ASGI wrapper
-
----
-
-## oTree Hub Compatibility
-
-### What Works on oTree Hub
-
-| Feature | Works? | Why |
-|---------|--------|-----|
-| Eye tracking in browser | Yes | WebEyeTrack runs client-side via CDN |
-| Gaze data in oTree CSV | Yes | Uses standard form submission |
-| Calibration page | Yes | Standard oTree page |
-| Real-time NDJSON backup | No | Custom endpoints don't exist |
-
-### What Happens on oTree Hub
-
-When deployed to oTree Hub:
-1. The custom ASGI wrapper is NOT used (oTree Hub runs standard oTree)
-2. `/record_gaze/` and `/record_event/` endpoints return 404
-3. Browser console shows errors for failed POST requests
-4. **BUT gaze data is still saved** via form submission to `eyetrack_gaze_data`
-
-### The Data is Safe
-
-We implemented **dual storage** intentionally:
-
-| Storage | Location | Works on oTree Hub? |
-|---------|----------|---------------------|
-| Primary | `eyetrack_gaze_data` field (form submission) | Yes |
-| Backup | NDJSON files via `/record_gaze/` | No |
-
-On oTree Hub, you lose the real-time backup but **keep all the data** in the oTree database.
-
-### Recommendation
-
-- **Self-hosted:** Use `uvicorn asgi:application` for real-time backup
-- **oTree Hub:** Works fine, just ignore console errors for `/record_gaze/`
-
----
-
-## Architecture
-
-```
-Browser                         Server
-   |                               |
-   |  POST /record_gaze/          |
-   | ---------------------------->| Custom ASGI Wrapper (asgi.py)
-   |                               |   |-- /web/* -> StaticFiles
-   |  GET /web/model.json         |   |-- /record_gaze/ -> Starlette endpoint
-   | ---------------------------->|   |-- /record_event/ -> Starlette endpoint
-   |                               |   +-- /* -> oTree app
-```
-
-**Page Flow:** Consent -> Calibration -> Decision (tracked) -> Results
-
----
-
-## Project Structure
-
-```
-mpl_risk/
-├── asgi.py                        # ASGI wrapper - routes gaze endpoints
-├── settings.py                    # oTree settings
-├── requirements.txt               # pip dependencies
-├── environment.yml                # conda environment
-├── Procfile                       # Heroku deployment (uses uvicorn)
-├── _templates/
-│   └── global/
-│       └── Page.html              # Base template (includes otai-utils.js)
-├── _static/
-│   ├── otai-utils.js              # DOM utilities (docQuerySelectorStrict)
-│   ├── styles.css                 # CSS styles
-│   ├── webeyetrack-loader.js      # WebEyeTrack ES module loader
-│   └── web/
-│       ├── model.json             # TensorFlow.js model
-│       └── group1-shard1of1.bin   # Model weights
-├── mpl_risk/
-│   ├── __init__.py                # oTree app (Player model, Pages)
-│   ├── Consent.html               # Camera consent page
-│   ├── consent.js                 # Camera permission logic
-│   ├── Calibration.html           # 9-point calibration page
-│   ├── calibration.js             # Calibration logic
-│   ├── Decision.html              # MPL task with eye tracking
-│   ├── gaze_tracker.js            # SimpleGazeTracker class
-│   └── Results.html               # Results page
-└── gaze_data/                     # NDJSON backup files (created at runtime)
-```
-
----
-
-## Running the Server
-
-### Self-Hosted (Recommended)
-
-```bash
-# Activate environment
-source venv/bin/activate  # or: conda activate otree-env
-
-# Install dependencies (first time only)
+source venv/bin/activate          # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 
-# Reset database (required after model changes)
 otree resetdb --noinput
-
-# Start server with custom ASGI wrapper
-uvicorn asgi:application --reload --port 8000
+uvicorn asgi:application --port 8000
 ```
 
-### oTree Hub
+Open <http://localhost:8000>, click **Demo → mpl_risk**, and grant the
+browser camera permission when prompted. The demo walks you through the
+four pages described below in 1–2 minutes.
 
-Upload normally. The eye tracking will work, but you'll see console errors for `/record_gaze/` (which can be ignored).
+> ⚠️ **Use `uvicorn`, not `otree devserver`.** WebEyeTrack 0.0.2 fetches
+> its model from a hardcoded `/web/...` path inside a Web Worker, and the
+> minimal wrapper in [`asgi.py`](asgi.py) is what serves that path. If you
+> run `otree devserver` instead, the page loads but the model 404s and the
+> tracker silently falls back to mock samples. See
+> [What's specific to oTree](#whats-specific-to-otree) for the full story.
 
-### Why NOT `otree devserver`?
+### Troubleshooting
 
-`otree devserver` starts oTree's built-in server which doesn't know about our custom routes. The custom ASGI wrapper in `asgi.py` intercepts requests and routes them appropriately.
+| Symptom | Likely cause |
+|---------|--------------|
+| Status badge says **"mock mode"** | You're running `otree devserver` instead of `uvicorn asgi:application`, or your browser can't reach the WebEyeTrack CDN. |
+| **Camera permission prompt never appears** | Some browsers remember a previous "deny" — clear the site permissions for `localhost`, then refresh. |
+| **`getUserMedia` not supported** | Camera APIs only work over `localhost` or HTTPS. If you're tunneling through ngrok/etc, use the HTTPS URL. |
+| **`otree resetdb` complains about a stale schema** | Run `rm db.sqlite3 && otree resetdb --noinput`. |
+| **Calibration RMSE shows `n/a`** | WebEyeTrack didn't capture any samples — usually means the camera couldn't see a face. Adjust lighting/position and recalibrate. |
 
----
+## What you'll see
 
-## Data Storage
+| Page | What happens |
+|------|-------------|
+| **Consent** | Asks for camera permission. The *Next* button only appears once permission is granted. |
+| **Calibration** | 9-dot click-to-fixate calibration. Reports RMSE in pixels with a green/yellow/red quality band. |
+| **Decision** | The 10-row MPL task. A small webcam preview is in the corner; the floating red dot shows real-time gaze. |
+| **Results** | Random row is selected for payment; shows the realized payoff. |
 
-Gaze data is stored in two places:
+Visit <http://localhost:8000/admin> to see the data: each participant has
+their MPL choice columns plus per-participant gaze fields, and the
+**Custom** export gives a long-format CSV with one row per gaze sample.
 
-1. **oTree Database** - `eyetrack_gaze_data` field (JSON array) exported with CSV
-2. **NDJSON Files** - `gaze_data/{participant}/{session}.ndjson` backup (self-hosted only)
+## What's specific to oTree
 
-### Sample Format
+oTree 5+ uses Starlette's ASGI routing rather than Django URL routing —
+adding `urls.py` entries is silently ignored. Two things follow:
+
+- **Static-file path mismatch.** WebEyeTrack 0.0.2 fetches its TF.js model
+  from a hardcoded `${origin}/web/model.json` *inside a Web Worker*. oTree
+  serves project static files at `/static/`, and a `window.fetch` patch in
+  the main thread cannot reach the worker. The fix is the minimal ASGI
+  wrapper in [`asgi.py`](asgi.py) that mounts `_static/web/` at `/web/` at
+  the network layer (~25 lines, one route). Everything else passes through
+  to oTree's normal app.
+- **Form-based persistence.** Gaze samples ride the standard form submit
+  via a hidden `LongStringField`, so there's no streaming endpoint to
+  deploy. A `custom_export` then unpacks the JSON into long-format CSV
+  for analysis.
+
+## Add eye tracking to your own oTree app
+
+Three files, six fields, one hidden-input block.
+
+**1. Copy these into your project:**
+
+- [`_static/web/`](_static/web/) — TF.js model files (~700 KB)
+- [`_static/webeyetrack-loader.js`](_static/webeyetrack-loader.js) — CDN module loader
+- [`mpl_risk/gaze_tracker.js`](mpl_risk/gaze_tracker.js) — `SimpleGazeTracker`
+- [`asgi.py`](asgi.py) — 25-line ASGI wrapper that serves `_static/web/` at `/web/`
+
+**2. Add six fields to your `Player` model:**
+
+```python
+eyetrack_consent           = models.BooleanField(initial=False)
+eyetrack_calibration_rmse  = models.FloatField(blank=True)
+eyetrack_sample_count      = models.IntegerField(initial=0)
+eyetrack_gaze_data         = models.LongStringField(blank=True)
+eyetrack_init_status       = models.StringField(initial='unknown')
+eyetrack_runtime_error     = models.LongStringField(blank=True)
+```
+
+**3. Gate the experiment behind camera consent.** Use the bundled
+[`Consent.html`](mpl_risk/Consent.html) +
+[`consent.js`](mpl_risk/consent.js), or merge the camera test into your
+existing intro page. The contract is: set
+`sessionStorage.eyetrack_consent = 'true'` once permission is granted,
+and submit the `eyetrack_consent` hidden input as `'1'`.
+
+**4. Calibrate.** Use [`Calibration.html`](mpl_risk/Calibration.html) +
+[`calibration.js`](mpl_risk/calibration.js). The calibration grid is
+defined in `get_calibration_points()` in
+[`__init__.py`](mpl_risk/__init__.py) and rendered into the page from
+`js_vars` — change one place to alter the layout.
+
+**5. Track on the page(s) you care about.** Mirror the pattern in
+[`Decision.html`](mpl_risk/Decision.html):
+
+```html
+<video id="webcam-video" autoplay playsinline muted></video>
+<input type="hidden" name="eyetrack_sample_count"   id="eyetrack_sample_count"   value="0">
+<input type="hidden" name="eyetrack_gaze_data"      id="eyetrack_gaze_data"      value="[]">
+<input type="hidden" name="eyetrack_init_status"    id="eyetrack_init_status"    value="unknown">
+<input type="hidden" name="eyetrack_runtime_error"  id="eyetrack_runtime_error"  value="">
+
+<script type="module">
+  import { loadWebEyeTrack } from '{{ static "webeyetrack-loader.js" }}';
+  loadWebEyeTrack();
+</script>
+<script>{{ include_sibling 'gaze_tracker.js' }}</script>
+<script>
+  const tracker = new SimpleGazeTracker({ videoElementId: 'webcam-video' });
+  document.addEventListener('DOMContentLoaded', async () => {
+    if (await tracker.init()) tracker.startTracking();
+    const form = document.querySelector('form');
+    let submitting = false;
+    form.addEventListener('submit', async function onSubmit(e) {
+      if (submitting) return;
+      e.preventDefault();
+      submitting = true;
+      await tracker.stopTracking();
+      form.removeEventListener('submit', onSubmit);
+      form.submit();
+    });
+  });
+</script>
+```
+
+**6. List the new fields in `form_fields`** on the tracked `Page`:
+`'eyetrack_sample_count', 'eyetrack_gaze_data', 'eyetrack_init_status', 'eyetrack_runtime_error'`.
+
+## Data captured
+
+### Per participant
+
+Saved to oTree's database and the standard CSV export:
+
+| Field | Meaning |
+|-------|---------|
+| `eyetrack_consent` | Whether camera permission was granted |
+| `eyetrack_calibration_rmse` | Calibration error in pixels (lower is better) |
+| `eyetrack_sample_count` | Total gaze samples collected |
+| `eyetrack_gaze_data` | JSON array of all gaze samples |
+| `eyetrack_init_status` | `ok` / `no_consent` / `init_failed` / `unknown` |
+| `eyetrack_runtime_error` | First uncaught JS error on the tracked page (empty if none) |
+
+### Per gaze sample
+
+Available via the **Custom** export — one row per sample, joined with the
+participant's `eyetrack_init_status` and an `is_mock` flag (`0`/`1`):
 
 ```json
 {
-  "x": 756.5,
-  "y": 412.3,
-  "norm_x": 0.1,
-  "norm_y": -0.05,
-  "gaze_state": "open",
-  "confidence": 0.9,
-  "t_perf": 12345.67
+  "x": 756.5, "y": 412.3,
+  "norm_x": 0.10, "norm_y": -0.05,
+  "gaze_state": "open", "confidence": 0.9,
+  "t_perf": 12345.67, "timestamp": 1700000000000
 }
 ```
 
----
+`x`/`y` are screen-space pixels at the time of sampling; `norm_x`/`norm_y`
+are WebEyeTrack's `[-0.5, 0.5]` normalized point of gaze.
 
-## Common Issues
-
-| Issue | Solution |
-|-------|----------|
-| 404 for /record_gaze/ | Use `uvicorn asgi:application`, not `otree devserver` |
-| Database readonly error | `pkill -f uvicorn && rm db.sqlite3 && otree resetdb` |
-| Gaze data not in CSV | Add field to `form_fields` in Page class |
-| BooleanField not saving | Use "1"/"0" not "true"/"false" in hidden inputs |
-
----
-
-## Step-by-Step Guide: Adding to Any oTree Project
-
-### Prerequisites
-
-- oTree 5+ project
-- Webcam access (HTTPS required in production)
-
-### Step 1: Download Required Files
-
-**WebEyeTrack Model Files** - Download from https://github.com/RedForestAI/WebEyeTrack/tree/main/js/web:
-
-```
-_static/web/
-├── model.json
-└── group1-shard1of1.bin
-```
-
-**Create WebEyeTrack Loader** - `_static/webeyetrack-loader.js`:
-
-```javascript
-let WebEyeTrackModule = null;
-let loadingPromise = null;
-
-export async function loadWebEyeTrack() {
-  if (WebEyeTrackModule) return WebEyeTrackModule;
-  if (loadingPromise) return loadingPromise;
-
-  loadingPromise = (async () => {
-    const module = await import('https://esm.sh/webeyetrack');
-    let WebcamClient = module.WebcamClient;
-    let WebEyeTrackProxy = module.WebEyeTrackProxy;
-
-    if (!WebcamClient && module.default) {
-      WebcamClient = module.default.WebcamClient;
-      WebEyeTrackProxy = module.default.WebEyeTrackProxy;
-    }
-
-    WebEyeTrackModule = { WebcamClient, WebEyeTrackProxy };
-    window.WebEyeTrack = WebEyeTrackModule;
-    return WebEyeTrackModule;
-  })();
-
-  return loadingPromise;
-}
-```
-
-### Step 2: Add Player Model Fields
-
-In your app's `__init__.py`:
-
-```python
-class Player(BasePlayer):
-    # Your existing fields...
-
-    # Eye tracking fields
-    eyetrack_consent = models.BooleanField(initial=False)
-    eyetrack_calibration_rmse = models.FloatField(blank=True)
-    eyetrack_sample_count = models.IntegerField(initial=0)
-    eyetrack_gaze_data = models.LongStringField(blank=True)  # JSON array
-```
-
-### Step 3: Create Consent Page
-
-Add to your Page class:
-
-```python
-class Consent(Page):
-    form_model = 'player'
-    form_fields = ['eyetrack_consent']
-```
-
-In template, add camera test button and hidden input:
-
-```html
-<input type="hidden" name="eyetrack_consent" id="eyetrack_consent" value="0">
-```
-
-Set value to "1" when camera access is granted.
-
-### Step 4: Add Tracking to Your Task Page
-
-Template requirements:
-```html
-<!-- Hidden inputs for data -->
-<input type="hidden" name="eyetrack_sample_count" id="eyetrack_sample_count" value="0">
-<input type="hidden" name="eyetrack_gaze_data" id="eyetrack_gaze_data" value="[]">
-
-<!-- Video element -->
-<video id="webcam-video" autoplay playsinline muted></video>
-
-<!-- Gaze visualization (optional) -->
-<div id="gaze-dot"></div>
-
-<!-- Load WebEyeTrack -->
-<script type="module">
-import { loadWebEyeTrack } from '{{ static "webeyetrack-loader.js" }}';
-loadWebEyeTrack();
-</script>
-
-<!-- Include tracker and initialize -->
-<script>{{ include_sibling 'gaze_tracker.js' }}</script>
-<script>
-const tracker = new SimpleGazeTracker({
-    participantCode: '{{ participant.code }}',
-    sessionCode: '{{ session.code }}',
-    pageName: 'YourPageName',
-    flushIntervalMs: 1000
-});
-
-document.addEventListener('DOMContentLoaded', async () => {
-    const initialized = await tracker.init();
-    if (initialized) tracker.startTracking();
-
-    // Intercept form submission to save data
-    const form = document.querySelector('form');
-    if (form) {
-        form.addEventListener('submit', async function(e) {
-            e.preventDefault();
-            await tracker.stopTracking();
-            form.removeEventListener('submit', arguments.callee);
-            form.submit();
-        });
-    }
-});
-</script>
-```
-
-Page class:
-```python
-class YourTaskPage(Page):
-    form_model = 'player'
-    form_fields = ['your_field_1', 'eyetrack_sample_count', 'eyetrack_gaze_data']
-```
-
-### Step 5: Create ASGI Wrapper (Self-Hosted Only)
-
-Copy `asgi.py` from this project to your project root. Key parts:
-
-```python
-from otree.asgi import app as otree_app
-
-class CustomASGIWrapper:
-    def __init__(self):
-        self.custom_app = Starlette(routes=[
-            Route('/record_gaze/', record_gaze, methods=['POST']),
-            Route('/record_event/', record_event, methods=['POST']),
-            Mount('/web', app=StaticFiles(directory=str(STATIC_WEB_DIR)), name='web'),
-        ])
-        self.otree_app = otree_app
-
-    async def __call__(self, scope, receive, send):
-        path = scope.get('path', '')
-        if path.startswith('/web/') or path in ['/record_gaze/', '/record_event/']:
-            await self.custom_app(scope, receive, send)
-        else:
-            await self.otree_app(scope, receive, send)
-
-application = CustomASGIWrapper()
-```
-
-### Step 6: Run with uvicorn
+## Testing
 
 ```bash
-otree resetdb --noinput
-uvicorn asgi:application --reload --port 8000
+# Pure-Python unit test (no browser needed)
+python tests/test_custom_export.py
+
+# End-to-end smoke test in headless Chromium with a synthetic camera
+pip install playwright && python -m playwright install chromium
+uvicorn asgi:application --port 8000  # in one terminal
+python tests/smoke_e2e.py             # in another
 ```
 
-### Checklist
+See [`tests/README.md`](tests/README.md) for what each layer asserts.
 
-- [ ] Downloaded WebEyeTrack model files to `_static/web/`
-- [ ] Created `_static/webeyetrack-loader.js`
-- [ ] Added Player fields for eye tracking
-- [ ] Created Consent page with camera test
-- [ ] Added gaze_tracker.js to your app
-- [ ] Added hidden inputs to tracked pages
-- [ ] Added fields to `form_fields` in Page classes
-- [ ] Created `asgi.py` (self-hosted only)
-- [ ] Reset database after schema changes
+## Production deployment
+
+<details>
+<summary>Click to expand</summary>
+
+`otree devserver` is fine for local testing. For a live study:
+
+**Environment variables.** Copy [`.env.example`](.env.example) and set:
+
+| Variable | Purpose |
+|----------|---------|
+| `OTREE_PRODUCTION` | Set to `1` to switch oTree out of debug mode |
+| `OTREE_SECRET_KEY` | Cookie-signing secret. Without it [`settings.py`](settings.py) generates a per-process key, fine for `devserver` but invalidates sessions across restarts. |
+| `OTREE_ADMIN_PASSWORD` | Password for the `/admin` interface |
+| `DATABASE_URL` | A Postgres URL. SQLite is fine for `devserver` but does not handle concurrent writes well for live sessions. |
+| `OTREE_AUTH_LEVEL` | Set to `STUDY` to require login on participant URLs |
+
+**HTTPS is mandatory.** Browsers only expose `getUserMedia` on secure
+contexts — localhost is exempt, any other host must serve over TLS or
+camera permission will fail.
+
+**Heroku-style hosts.** The included [Procfile](Procfile) starts
+`uvicorn asgi:application --host 0.0.0.0 --port $PORT`. Run
+`otree resetdb --noinput` once after deploy.
+
+**oTree Hub.** The wrapper in [`asgi.py`](asgi.py) is **not** invoked on
+oTree Hub — Hub runs `otree prodserver` directly, so requests to
+`/web/model.json` 404 and WebEyeTrack falls back to its mock-data path.
+Use a self-hosted deployment (Heroku, Render, fly.io, an oTree-installed
+VM) if you need real gaze data.
+
+**Data volume.** At ~30 Hz a 5-minute task produces ~9 000 samples per
+participant, roughly 1.5 – 2 MB of JSON in `eyetrack_gaze_data`. Postgres
+handles this fine; size your instance accordingly for large studies.
+
+</details>
+
+## Caveats
+
+- **Webcam-grade accuracy.** WebEyeTrack is not a research-grade eye
+  tracker. Calibration RMSE is reported in pixels — useful for
+  per-participant quality screening, but expect substantial noise.
+- **Mock-data fallback.** If WebEyeTrack fails to initialize,
+  `SimpleGazeTracker` switches to mock samples around screen center so
+  the rest of the task still completes. Filter on
+  `eyetrack_init_status='init_failed'` (participant level) or `is_mock=1`
+  (per sample) at analysis time.
+- **Client-trusted fields.** All `eyetrack_*` fields are written by the
+  participant's browser. A motivated participant could spoof them; for
+  paid studies, treat them as quality hints and cross-check the
+  `gaze_state` distribution and `eyetrack_runtime_error` field.
+
+## Credits & license
+
+- Eye-tracking model and library: [WebEyeTrack](https://github.com/RedForestAI/WebEyeTrack) by RedForestAI
+- Experiment framework: [oTree](https://www.otree.org/)
+- This integration: [MIT](LICENSE)
+
+If you use this in published research, please cite both this repository
+(see [`CITATION.cff`](CITATION.cff)) and the upstream WebEyeTrack project.
+
+For other frameworks, see the parent
+[Webcam Eye Tracking Guide](https://kiante-fernandez.github.io/webcam-eyetracking/).
