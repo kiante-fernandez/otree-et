@@ -246,12 +246,19 @@ URL prefix and passes everything else to oTree. Gaze samples are
 collected in the browser and posted to the server with the rest of the
 form data — no streaming server required.
 
-## Credits and license
+## Credits
 
 - Eye-tracking library:
   [WebEyeTrack](https://github.com/RedForestAI/WebEyeTrack) by RedForestAI
 - Experiment framework: [oTree](https://www.otree.org/)
-- This integration: [MIT](LICENSE)
 
 If you use this in published research, please cite both this repository
 (see [`CITATION.cff`](CITATION.cff)) and the upstream WebEyeTrack project.
+
+## License
+
+TDG-Attribution-NonCommercial-ShareAlike (UCLA Academic Software License).
+Free for academic and non-profit research use with attribution; redistribution
+must keep this license. **Commercial use is not permitted** — contact
+software@tdg.ucla.edu for commercial licensing. See [LICENSE](LICENSE) for full
+terms.

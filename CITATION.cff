@@ -6,7 +6,7 @@ authors:
   - family-names: Fernandez
     given-names: "Kianté"
 repository-code: "https://github.com/kiante-fernandez/otree-et"
-license: MIT
+license-url: "https://github.com/kiante-fernandez/otree-et/blob/main/LICENSE"
 keywords:
   - oTree
   - eye tracking
