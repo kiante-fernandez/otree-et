@@ -18,6 +18,9 @@ class SimpleGazeTracker {
   constructor(config) {
     config = config || {};
     this.videoElementId = config.videoElementId || 'webcam-video';
+    // Where the vendored bundle should fetch the gaze model from. Upstream
+    // defaults to `${origin}/web/model.json`, which oTree does not serve.
+    this.modelUrl = config.modelUrl || '/static/web/model.json';
 
     this.allSamples = [];
     this.isTracking = false;
@@ -45,9 +48,11 @@ class SimpleGazeTracker {
         throw new Error(`Video element "${this.videoElementId}" not found`);
       }
 
-      const { WebcamClient, WebEyeTrackProxy } = window.WebEyeTrack;
+      const { WebcamClient, WebEyeTrackProxy } = window.WebEyeTrackModule;
       this.webcamClient = new WebcamClient(this.videoElementId);
-      this.webEyeTrackProxy = new WebEyeTrackProxy(this.webcamClient);
+      this.webEyeTrackProxy = new WebEyeTrackProxy(this.webcamClient, {
+        modelUrl: this.modelUrl,
+      });
       this.webEyeTrackProxy.onGazeResults = (gazeResult) => {
         this.handleGazeResult(gazeResult);
       };
@@ -69,9 +74,13 @@ class SimpleGazeTracker {
     }
   }
 
+  // `window.WebEyeTrackModule` is set by webeyetrack-loader.js once the bundle
+  // has loaded AND its exports have been checked. Do not poll for upstream's
+  // `window.WebEyeTrack`: the UMD bundle sets that to a class the moment the
+  // script runs, so polling it races the export check.
   async waitForWebEyeTrack(timeoutMs = 15000) {
     const startTime = Date.now();
-    while (!window.WebEyeTrack) {
+    while (!window.WebEyeTrackModule) {
       if (Date.now() - startTime > timeoutMs) {
         throw new Error('WebEyeTrack library failed to load');
       }

@@ -34,21 +34,21 @@ python -m venv venv
 source venv/bin/activate          # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 
-otree resetdb --noinput
-uvicorn asgi:application --port 8000
+otree devserver
 ```
+
+Do not run `otree resetdb` first. `devserver` keeps its database in memory and
+writes it out when you stop it; a database created by `resetdb` is missing a
+version marker that `devserver` then rejects.
 
 Open <http://localhost:8000> in your browser, click **Demo**, then
 **mpl_risk**, and grant the camera permission when your browser asks.
 The demo takes one or two minutes to walk through.
 
-The first time you load the calibration page the browser downloads the
-eye-tracking model from a CDN, which can take a few seconds.
-
-**Note:** start the server with `uvicorn asgi:application`, not
-`otree devserver`. The `otree devserver` command runs but the
-eye-tracking model fails to load and the tracker quietly switches to fake
-data. The line above is the right command.
+The gaze model ships with this repository and is served from `/static/`, so
+any standard oTree command works. The first calibration page load still
+fetches MediaPipe's face-detection model from a CDN, which can take a few
+seconds.
 
 ## What you will see
 
@@ -67,10 +67,10 @@ export gives one row per gaze sample for analysis.
 
 | Symptom | Likely cause |
 |---------|--------------|
-| Status badge says "mock mode" | The eye-tracking model failed to load. Most often: you ran `otree devserver` instead of `uvicorn asgi:application`. |
+| Status badge says "mock mode" | The eye-tracking library failed to load. Re-run `tools/build_webeyetrack.sh`. |
 | Camera permission prompt never appears | The browser remembers a previous "deny". Clear site permissions for `localhost` and refresh. |
 | `getUserMedia` not supported | Camera APIs only work on `localhost` or HTTPS. Tunneling through ngrok? Use the HTTPS URL. |
-| `otree resetdb` complains about a stale schema | Run `rm db.sqlite3 && otree resetdb --noinput`. |
+| "oTree has been updated. Please delete your database" | Your `db.sqlite3` predates the installed oTree, or was created by `otree resetdb`. Run `rm db.sqlite3` and start `otree devserver` again. |
 | Calibration error reads "n/a" | The webcam couldn't see a face. Improve lighting, sit closer, and recalibrate. |
 
 ## Add eye tracking to your own oTree app
@@ -79,10 +79,11 @@ Three files to copy, six fields to add, one block of HTML.
 
 **1. Copy these into your project:**
 
-- [`asgi.py`](asgi.py) — small Python file that serves the model files at `/web/`
-- [`_static/web/`](_static/web/) — the model files themselves (about 700 KB)
-- [`_static/webeyetrack-loader.js`](_static/webeyetrack-loader.js) — loads the eye-tracking library
+- [`_static/webeyetrack/`](_static/webeyetrack/) — the vendored eye-tracking library
+- [`_static/web/`](_static/web/) — the gaze model files (about 700 KB)
+- [`_static/webeyetrack-loader.js`](_static/webeyetrack-loader.js) — loads the library
 - [`mpl_risk/gaze_tracker.js`](mpl_risk/gaze_tracker.js) — the `SimpleGazeTracker` class that records samples
+- [`tools/build_webeyetrack.sh`](tools/build_webeyetrack.sh) — regenerates the vendored library
 
 **2. Add six fields to your `Player` model:**
 
@@ -178,8 +179,8 @@ python tests/test_custom_export.py
 # Full end-to-end test in a headless browser with a synthetic camera
 pip install playwright
 python -m playwright install chromium
-uvicorn asgi:application --port 8000  # in one terminal
-python tests/smoke_e2e.py             # in another
+otree devserver            # in one terminal
+python tests/smoke_e2e.py  # in another
 ```
 
 See [`tests/README.md`](tests/README.md) for what each test checks.
@@ -189,8 +190,7 @@ See [`tests/README.md`](tests/README.md) for what each test checks.
 <details>
 <summary>Click to expand</summary>
 
-`uvicorn asgi:application --port 8000` is fine for local testing. For a
-live study:
+`otree devserver` is fine for local testing. For a live study:
 
 **Environment variables.** Copy [`.env.example`](.env.example) and set:
 
@@ -207,13 +207,11 @@ or HTTPS. If you deploy behind a proxy, make sure it terminates TLS and
 forwards `X-Forwarded-Proto`.
 
 **Heroku-style hosts.** The included [Procfile](Procfile) starts
-`uvicorn asgi:application --host 0.0.0.0 --port $PORT`. Run
+`uvicorn otree.asgi:app --host 0.0.0.0 --port $PORT`. Run
 `otree resetdb --noinput` once after deploy.
 
-**oTree Hub.** The wrapper in [`asgi.py`](asgi.py) is not invoked on
-oTree Hub, so the model 404s and the tracker silently records mock data.
-Use a self-hosted deployment (Heroku, Render, fly.io, an oTree-installed
-VM) if you need real gaze data.
+**oTree Hub.** Supported. The gaze model is served from `/static/`, which
+oTree serves everywhere, so no custom server is needed.
 
 **Data volume.** At about 30 samples per second a 5-minute task produces
 roughly 9,000 samples per participant, around 1.5–2 MB of JSON per row.
@@ -239,12 +237,19 @@ with many participants.
 
 The library used here, [WebEyeTrack](https://github.com/RedForestAI/WebEyeTrack),
 runs entirely in the browser and only sends the gaze coordinates back to
-the server, not the video. It loads its model from a hardcoded URL
-(`/web/model.json`), which doesn't match where oTree puts static files.
-The 25-line [`asgi.py`](asgi.py) is a thin wrapper that serves that one
-URL prefix and passes everything else to oTree. Gaze samples are
-collected in the browser and posted to the server with the rest of the
-form data — no streaming server required.
+the server, not the video. Gaze samples are collected in the browser and
+posted to the server with the rest of the form data — no streaming server
+required.
+
+WebEyeTrack hardcodes its model URL as `/web/model.json`, which is not
+where oTree serves static files. Rather than run a custom server to mount
+that one path, this project vendors the library and rewrites that single
+string to `/static/web/model.json`. See
+[`_static/webeyetrack/VENDOR.md`](_static/webeyetrack/VENDOR.md) for the
+exact change and [`tools/build_webeyetrack.sh`](tools/build_webeyetrack.sh)
+to reproduce it. The upshot is that every oTree launch command works,
+including oTree Hub, and the library is no longer fetched from a CDN at
+run time.
 
 ## Credits
 

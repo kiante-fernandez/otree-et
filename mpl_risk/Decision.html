@@ -69,8 +69,10 @@
 
 <script type="module">
 import { loadWebEyeTrack } from '{{ static "webeyetrack-loader.js" }}';
-// Pre-load WebEyeTrack (it may already be cached from Calibration page)
-loadWebEyeTrack().catch(err => console.warn('WebEyeTrack preload failed:', err));
+// Served from this project's own static files; the browser cache usually makes
+// this free after the Calibration page.
+loadWebEyeTrack('{{ static "webeyetrack/webeyetrack.js" }}')
+    .catch(err => console.warn('WebEyeTrack load failed:', err));
 </script>
 
 <script>{{ include_sibling 'gaze_tracker.js' }}</script>

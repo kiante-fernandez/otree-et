@@ -14,8 +14,9 @@ Setup (one-time):
 
 Run:
 
-    # Start the dev server in another terminal:
-    otree resetdb --noinput && otree devserver 8000
+    # Start the dev server in another terminal (no resetdb -- devserver
+    # manages its own database and rejects one that resetdb created):
+    otree devserver
 
     # Then:
     python tests/smoke_e2e.py
@@ -24,12 +25,14 @@ Run:
 
 What this asserts:
   * Consent page accepts the fake camera and reveals the Next button.
-  * Calibration page loads WebEyeTrack from CDN through the /web -> /static/web
-    fetch shim (no console errors mentioning model.json 404s).
+  * Calibration page loads the vendored WebEyeTrack bundle and its gaze model
+    from /static/ (no console errors about the model failing to load).
   * Decision page shows the expected currency formatting (no `€€` doubling).
-  * Submitting Decision persists eyetrack_init_status and a non-empty
-    eyetrack_gaze_data into oTree's session — verified by reading admin export.
   * Results page renders a single euro symbol per amount.
+
+What this does NOT assert (see tests/README.md): Chromium's synthetic camera
+has no face in it, so every gaze sample comes back `gaze_state: 'closed'` at
+screen centre. Calibration accuracy and gaze quality cannot be checked here.
 """
 
 from __future__ import annotations
@@ -166,16 +169,12 @@ def run() -> int:
         assert_(euro_count == 0, f"no '€€' double-print on Results (saw {euro_count})")
         assert_(re.search(r"€\d", body) is not None, "Results page contains a Euro amount")
 
-        # Console-error sanity. Filter out:
-        #  - WebEyeTrack init failure messages (mock fallback is acceptable)
-        #  - 404s on /web/model.json (means asgi.py mount is misconfigured —
-        #    we'd want to know, but it's noisy in tests)
-        #  - TF Lite INFO/WARN messages routed through console.error (these
-        #    come from MediaPipe's XNNPACK / GL initialization and are benign)
+        # Console-error sanity. Only MediaPipe's own INFO/WARN chatter, which it
+        # routes through console.error during XNNPACK / GL initialization, is
+        # benign. Do NOT whitelist "WebEyeTrack", "404", or "init_failed": those
+        # are exactly the strings a broken model mount emits, and filtering them
+        # is how this test used to pass while the tracker recorded nothing.
         benign_substrings = (
-            "WebEyeTrack",
-            "404",
-            "init_failed",
             "TensorFlow Lite",
             "XNNPACK",
             "gl_context",
