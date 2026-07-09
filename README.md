@@ -67,15 +67,16 @@ export gives one row per gaze sample for analysis.
 
 | Symptom | Likely cause |
 |---------|--------------|
-| Status badge says "mock mode" | The eye-tracking library failed to load. Re-run `tools/build_webeyetrack.sh`. |
+| Status badge says "unavailable" | The tracker could not start. `eyetrack_runtime_error` says why. If it mentions the library, re-run `tools/build_webeyetrack.sh`. |
+| "Face not detected" on every calibration dot | The webcam cannot see a face. Improve lighting, sit closer, remove glare. The dot deliberately will not advance without a gaze reading. |
 | Camera permission prompt never appears | The browser remembers a previous "deny". Clear site permissions for `localhost` and refresh. |
 | `getUserMedia` not supported | Camera APIs only work on `localhost` or HTTPS. Tunneling through ngrok? Use the HTTPS URL. |
 | "oTree has been updated. Please delete your database" | Your `db.sqlite3` predates the installed oTree, or was created by `otree resetdb`. Run `rm db.sqlite3` and start `otree devserver` again. |
-| Calibration error reads "n/a" | The webcam couldn't see a face. Improve lighting, sit closer, and recalibrate. |
+| `eyetrack_calibration_rmse` is empty | The participant skipped calibration. Their gaze comes from an uncalibrated model; exclude or flag them. |
 
 ## Add eye tracking to your own oTree app
 
-Three files to copy, six fields to add, one block of HTML.
+A few files to copy, six fields to add, one block of HTML.
 
 **1. Copy these into your project:**
 
@@ -83,7 +84,7 @@ Three files to copy, six fields to add, one block of HTML.
 - [`_static/web/`](_static/web/) — the gaze model files (about 700 KB)
 - [`_static/webeyetrack-loader.js`](_static/webeyetrack-loader.js) — loads the library
 - [`mpl_risk/gaze_tracker.js`](mpl_risk/gaze_tracker.js) — the `SimpleGazeTracker` class that records samples
-- [`tools/build_webeyetrack.sh`](tools/build_webeyetrack.sh) — regenerates the vendored library
+- [`vendor/webeyetrack/`](vendor/webeyetrack/) and [`tools/build_webeyetrack.sh`](tools/build_webeyetrack.sh) — the pinned source and patches the library is built from
 
 **2. Add six fields to your `Player` model:**
 
@@ -100,7 +101,8 @@ eyetrack_runtime_error     = models.LongStringField(blank=True)
 [`Consent.html`](mpl_risk/Consent.html) +
 [`consent.js`](mpl_risk/consent.js) and
 [`Calibration.html`](mpl_risk/Calibration.html) +
-[`calibration.js`](mpl_risk/calibration.js) as-is, or merge them into
+[`calibration.js`](mpl_risk/calibration.js) +
+[`calibration_math.js`](mpl_risk/calibration_math.js) as-is, or merge them into
 your existing intro flow.
 
 **4. Track on the page(s) you care about.** Mirror
@@ -115,11 +117,19 @@ your existing intro flow.
 
 <script type="module">
   import { loadWebEyeTrack } from '{{ static "webeyetrack-loader.js" }}';
-  loadWebEyeTrack();
+  loadWebEyeTrack('{{ static "webeyetrack/webeyetrack.js" }}');
 </script>
 <script>{{ include_sibling 'gaze_tracker.js' }}</script>
 <script>
-  const tracker = new SimpleGazeTracker({ videoElementId: 'webcam-video' });
+  const tracker = new SimpleGazeTracker({
+    videoElementId: 'webcam-video',
+    // Restores the model calibrated on the Calibration page. Without it this
+    // page's gaze comes from an uncalibrated model.
+    calibrationKey: js_vars.calibration_key,
+    // Do not let the participant's clicks on your own controls retrain the
+    // gaze model toward whatever they clicked.
+    adaptOnClick: false,
+  });
   document.addEventListener('DOMContentLoaded', async () => {
     if (await tracker.init()) tracker.startTracking();
     const form = document.querySelector('form');
@@ -128,16 +138,32 @@ your existing intro flow.
       if (submitting) return;
       e.preventDefault();
       submitting = true;
-      await tracker.stopTracking();
+      await tracker.stopTracking();   // writes the hidden fields
       form.removeEventListener('submit', onSubmit);
       form.submit();
     });
   });
+  window.addEventListener('beforeunload', () => tracker.destroy());
 </script>
 ```
 
 **5. Add the new fields to `form_fields`** on the tracked Page:
 `'eyetrack_sample_count', 'eyetrack_gaze_data', 'eyetrack_init_status', 'eyetrack_runtime_error'`.
+
+**6. Pass the calibration key and consent** from that Page's `js_vars`:
+
+```python
+@staticmethod
+def js_vars(player):
+    return dict(
+        calibration_key=get_calibration_key(player),
+        eyetrack_consent=bool(player.eyetrack_consent),
+    )
+```
+
+Calibration lives in the gaze model's weights, inside a Web Worker that every
+oTree page load recreates. The key is what lets a calibration performed once
+apply to every page that follows.
 
 ## Data captured
 
@@ -146,29 +172,41 @@ your existing intro flow.
 | Field | Meaning |
 |-------|---------|
 | `eyetrack_consent` | Whether camera permission was granted |
-| `eyetrack_calibration_rmse` | Calibration error in pixels (lower is better) |
+| `eyetrack_calibration_rmse` | Error in pixels on the four held-out validation points (lower is better). **Empty means calibration was skipped** — the gaze below comes from an uncalibrated model. |
 | `eyetrack_sample_count` | Total gaze samples collected |
 | `eyetrack_gaze_data` | JSON array of all gaze samples |
 | `eyetrack_init_status` | `ok`, `no_consent`, `init_failed`, or `unknown` |
 | `eyetrack_runtime_error` | First uncaught browser error on the tracked page (empty if none) |
 
+`eyetrack_calibration_rmse` is measured on points the model was *not* fitted to.
+Error on the points used for calibration would be optimistic by construction.
+
 ### Per gaze sample
 
 The Custom export gives one row per sample, joined with the participant's
-`eyetrack_init_status` and an `is_mock` flag (`0` or `1`):
+`eyetrack_init_status`:
 
 ```json
 {
   "x": 756.5, "y": 412.3,
   "norm_x": 0.10, "norm_y": -0.05,
-  "gaze_state": "open", "confidence": 0.9,
-  "t_perf": 12345.67, "timestamp": 1700000000000
+  "gaze_state": "open",
+  "t_perf": 12345.67, "frame_time": 4.85
 }
 ```
 
-`x` and `y` are screen-space pixels at the time of sampling. `norm_x` and
-`norm_y` are the library's normalized point of gaze in the range
-`[-0.5, 0.5]`.
+| Column | Meaning |
+|--------|---------|
+| `x`, `y` | Screen pixels. **Empty when no face was detected** — never a guessed location. |
+| `norm_x`, `norm_y` | The library's normalized point of gaze, in `[-0.5, 0.5]`. Empty when no face was detected. |
+| `gaze_state` | `open` when a face was tracked. Any other value means the coordinates are empty rather than a real fixation. |
+| `t_perf` | Milliseconds since page load. Monotonic — **use this for timing**. |
+| `frame_time` | The camera's own clock, in *seconds* since the video stream started. A different clock from `t_perf`. |
+
+One sample per unique camera frame. The library reports gaze on every animation
+frame (~60 Hz) while the camera runs at ~30 fps, so roughly a third of its
+reports re-process the previous frame; those are collapsed rather than stored
+twice.
 
 ## Testing
 
@@ -225,10 +263,15 @@ with many participants.
 - **Webcam-grade accuracy.** This is not a research-grade eye tracker.
   Calibration error is reported in pixels and is useful for screening,
   but expect substantial noise.
-- **Mock data fallback.** If the eye-tracking library fails to start,
-  the tracker keeps the experiment running with fake samples around the
-  screen center. Filter on `eyetrack_init_status='init_failed'` or
-  `is_mock=1` when analyzing.
+- **No fabricated data.** If the tracker cannot start, it says so
+  (`eyetrack_init_status` is `init_failed` or `no_consent`) and records
+  nothing. A frame in which no face was seen is stored with empty
+  coordinates, not as a fixation at the centre of the screen. Nothing in
+  the exported data is synthetic.
+- **Participants can skip calibration.** Someone the webcam cannot see is
+  offered a way past the calibration page rather than being stranded on it.
+  Those rows have an empty `eyetrack_calibration_rmse` and gaze from an
+  uncalibrated model. Decide up front whether to exclude them.
 - **Client-trusted fields.** All `eyetrack_*` fields are written by the
   participant's browser. A determined participant could spoof them.
   Treat them as quality hints rather than ground truth.

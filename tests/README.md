@@ -1,6 +1,36 @@
 # Tests
 
-Three layers, opt-in:
+Four layers. Everything except the browser tests runs in under a second:
+
+```bash
+python -m pytest tests/          # Python units
+node --test tests/js/*.test.mjs  # JavaScript units, no browser
+```
+
+## 0. JavaScript unit tests — `tests/js/`
+
+`gaze_tracker.test.mjs` exercises `SimpleGazeTracker` against a stub DOM under
+plain `node --test`. No jsdom, no npm dependencies. It pins the properties that
+matter for data quality and that a browser test cannot cheaply check:
+
+- a frame with no face is recorded with empty coordinates, never as a fixation
+  at the centre of the screen
+- repeated camera frames are collapsed to one sample
+- the latest gaze reading is available before `startTracking()`, which is what
+  the calibration page depends on
+- a stale reading is not reused
+- a no-consent participant is saved as `no_consent`, not `unknown`
+- the server's record of consent beats a lost `sessionStorage` entry
+- `init()` reports failure rather than substituting fabricated samples
+
+`calibration_math.test.mjs` covers the calibration geometry and the RMSE.
+
+Seven of the ten `gaze_tracker` tests fail against the version of the tracker
+that shipped before them.
+
+---
+
+The three original layers:
 
 ## 1. Unit test — `test_payoff.py`
 
@@ -64,14 +94,33 @@ What it checks:
 - `eyetrack_consent` hidden input flips to `'1'` after the camera test.
 - Calibration loading overlay clears (the gaze model loaded from
   `/static/web/model.json`).
-- All 9 calibration dots are clickable and the RMSE field is rendered.
+- With no face in frame, calibration refuses: the hint appears, the dot does
+  not advance, and no point is recorded.
+- After repeated failures the participant is offered a way past the page, and
+  taking it works. Nothing else on the calibration page can move them forward.
+- On the Decision page: `init_status == 'ok'`, samples were actually collected,
+  no-face samples carry empty coordinates, and there is exactly one sample per
+  camera frame.
 - Decision page contains no `€€` double-printed currency.
 - Results page renders a single Euro symbol per amount.
-- No unexpected JS console errors (TF Lite / MediaPipe INFO chatter is
-  filtered).
+- No unexpected JS console errors. MediaPipe's own INFO chatter is filtered;
+  `404` and `WebEyeTrack` deliberately are not, because those are what a broken
+  model mount emits.
+
+## 4. Calibration persistence — `test_calibration_persistence.py`
+
+Drives Consent → Calibration → Decision and asserts the personalised model is
+written to IndexedDB and restored on the next page, under a key derived from the
+participant. This is the property the integration rests on: gaze-model
+adaptation lives in a Web Worker that every oTree page load destroys.
+
+```bash
+otree devserver                              # in one terminal
+python tests/test_calibration_persistence.py # in another
+```
 
 **Known gap.** Chromium's synthetic camera shows a test pattern with no face,
-so the tracker returns `gaze_state: 'closed'` at screen centre for every
-sample. This suite therefore cannot validate calibration accuracy or gaze
-quality — only that the data path is wired up. Validating those needs one
-session with a real webcam.
+so the tracker returns `gaze_state: 'closed'` for every sample and `calibrate()`
+has nothing to adapt to. The browser suites therefore verify the data path, the
+refusal behaviour, and the persistence mechanism — but not calibration
+*accuracy*. That needs one session with a real webcam.

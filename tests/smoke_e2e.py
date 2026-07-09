@@ -132,18 +132,49 @@ def run() -> int:
             print(f"  Recent console errors:\n    {console_dump}")
             raise
         page.click("#start-calibration-btn")
-        # Click each calibration dot in sequence as it activates. The dot has
-        # a CSS pulse animation (.calibration-point.active scales infinitely),
-        # which makes Playwright's "element stable" check fail — force=True
-        # bypasses it.
-        for i in range(9):
-            page.wait_for_selector(".calibration-point.active", timeout=10_000)
-            page.click(".calibration-point.active", force=True)
-            time.sleep(0.6)
-        page.wait_for_selector("#calibration-complete:not(.hidden)", timeout=10_000)
 
-        rmse_text = page.text_content("#calibration-rmse-value") or ""
-        assert_(rmse_text != "—", f"calibration RMSE was rendered (got {rmse_text!r})")
+        # Chromium's synthetic camera shows a test pattern with no face in it, so
+        # the tracker has no gaze reading to pair with the dot. Calibration MUST
+        # refuse rather than adapt the model to a fabricated centre-screen gaze.
+        # Clicking the dot repeatedly must not advance the sequence.
+        #
+        # The dot has a CSS pulse animation, so Playwright's "element stable"
+        # check never settles; force=True bypasses it.
+        page.wait_for_selector(".calibration-point.active", timeout=10_000)
+
+        # Which dot is active, by position in the sequence. Do not compare
+        # bounding boxes: the active dot has a CSS pulse animation, so its box
+        # legitimately changes between reads.
+        active_index = (
+            "Array.from(document.querySelectorAll('.calibration-point'))"
+            ".findIndex(d => d.classList.contains('active'))"
+        )
+        assert_(page.evaluate(active_index) == 0, "calibration starts on the first dot")
+
+        for _ in range(3):
+            page.click(".calibration-point.active", force=True)
+            time.sleep(0.4)
+
+        hint = (page.text_content("#calibration-live-hint") or "").strip()
+        assert_("Face not detected" in hint, f"no-face hint shown (got {hint!r})")
+
+        assert_(
+            page.evaluate(active_index) == 0,
+            "the dot must not advance when no face was seen",
+        )
+        assert_(
+            page.locator(".calibration-point.clicked").count() == 0,
+            "no point may be recorded without a gaze reading",
+        )
+
+        # With no face there is no way to finish, so the page must offer a way
+        # out. Nothing else on this page can move the participant forward.
+        page.wait_for_selector("#calibration-escape:not(.hidden)", timeout=10_000)
+        assert_(True, "escape route offered after repeated no-face attempts")
+        page.click("#skip-calibration-btn")
+
+        page.wait_for_selector("#proceed:not(.hidden)", timeout=10_000)
+        assert_(True, "participant can proceed after skipping calibration")
 
         page.click("button[type='submit'], .otree-btn-next, button:has-text('Next')")
         page.wait_for_load_state("networkidle")
@@ -156,7 +187,34 @@ def run() -> int:
         # Pick option A (radio value 1) for every row.
         for i in range(1, 11):
             page.click(f"input[name='choice_{i}'][value='1']")
-        page.wait_for_timeout(500)
+        page.wait_for_timeout(1500)
+
+        # The gaze data path must actually carry data. The model loaded (the
+        # console check above would have caught a 404), so samples must flow.
+        status = page.evaluate("tracker.initStatus")
+        assert_(status == "ok", f"tracker reports init_status 'ok' (got {status!r})")
+
+        n_samples = page.evaluate("tracker.allSamples.length")
+        assert_(n_samples > 0, f"gaze samples were collected (got {n_samples})")
+
+        # No face in the synthetic stream, so every sample must carry null
+        # coordinates rather than a fabricated fixation at the screen centre.
+        centre_fixations = page.evaluate(
+            "tracker.allSamples.filter(s => s.gaze_state !== 'open' && s.x !== null).length"
+        )
+        assert_(
+            centre_fixations == 0,
+            f"no-face samples must have null coordinates (got {centre_fixations} with coordinates)",
+        )
+
+        # Duplicate camera frames must be collapsed.
+        distinct_frames = page.evaluate(
+            "new Set(tracker.allSamples.map(s => s.frame_time)).size"
+        )
+        assert_(
+            distinct_frames == n_samples,
+            f"one sample per camera frame ({n_samples} samples, {distinct_frames} frames)",
+        )
 
         # Submit.
         page.click("button[type='submit'], .otree-btn-next, button:has-text('Next')")

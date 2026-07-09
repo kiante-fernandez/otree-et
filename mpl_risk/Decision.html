@@ -77,7 +77,18 @@ loadWebEyeTrack('{{ static "webeyetrack/webeyetrack.js" }}')
 
 <script>{{ include_sibling 'gaze_tracker.js' }}</script>
 <script>
-const tracker = new SimpleGazeTracker({ videoElementId: 'webcam-video' });
+const tracker = new SimpleGazeTracker({
+    videoElementId: 'webcam-video',
+    // Restore the model the participant calibrated on the previous page. Model
+    // adaptation lives in a Web Worker that this page load recreated from
+    // scratch, so without this the gaze below comes from an uncalibrated model.
+    calibrationKey: js_vars.calibration_key,
+    // The ten choices are radio buttons. WebEyeTrack would treat every one of
+    // those clicks as "the participant was looking here" and retrain on it,
+    // dragging the model toward the choice column -- precisely the region an
+    // attention analysis wants to measure.
+    adaptOnClick: false,
+});
 
 // Capture the first uncaught error so it survives form submit. Non-empty
 // eyetrack_runtime_error in the data flags participants whose tracking may
@@ -119,6 +130,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         form.addEventListener('submit', onSubmit);
     }
 });
+
+// Release the camera and the worker rather than waiting for the browser to
+// reclaim them at some point after navigation.
+window.addEventListener('beforeunload', () => tracker.destroy());
 </script>
 
 {{ endblock }}

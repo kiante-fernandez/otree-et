@@ -24,16 +24,21 @@
     cursor: pointer;
     opacity: 0;
     transition: opacity 0.3s, background 0.3s;
+    /* An invisible element is still clickable. Without this, a click on a dot
+       that has not been presented yet advances the sequence. */
+    pointer-events: none;
 }
 
 .calibration-point.active {
     opacity: 1;
     animation: pulse 1s infinite;
+    pointer-events: auto;
 }
 
 .calibration-point.clicked {
     background: #2a9d8f;
     opacity: 0.5;
+    pointer-events: none;
 }
 
 @keyframes pulse {
@@ -41,13 +46,38 @@
     50% { transform: translate(-50%, -50%) scale(1.2); }
 }
 
-#pre-calibration {
-    max-width: 600px;
-    margin: 0 auto;
-    padding: 20px;
+#calibration-phase {
+    position: fixed;
+    top: 16px;
+    left: 0;
+    right: 0;
+    text-align: center;
+    color: #f1faee;
+    font-size: 0.95em;
+    letter-spacing: 0.02em;
 }
 
-#calibration-complete {
+#calibration-live-hint {
+    position: fixed;
+    bottom: 64px;
+    left: 0;
+    right: 0;
+    text-align: center;
+    color: #ffd166;
+    font-size: 1em;
+}
+
+#calibration-escape {
+    position: fixed;
+    bottom: 20px;
+    left: 0;
+    right: 0;
+    text-align: center;
+}
+
+#pre-calibration,
+#calibration-complete,
+#tracker-unavailable {
     max-width: 600px;
     margin: 0 auto;
     padding: 20px;
@@ -104,10 +134,6 @@
     z-index: 100;
     background: #000;
 }
-
-#webcam-video.hidden {
-    display: none;
-}
 </style>
 {{ endblock }}
 
@@ -127,54 +153,90 @@
         <ol>
             <li>You will see {{ num_points }} red dots appear one at a time</li>
             <li>Look directly at each dot and click on it</li>
-            <li>Keep your head still during calibration</li>
-            <li>The dot will turn green when clicked</li>
+            <li>Keep your head still throughout</li>
+            <li>The dot will turn green when it has been recorded</li>
         </ol>
         <p><b>Tip:</b> Sit comfortably at arm's length from your screen.</p>
     </div>
     <button type="button" id="start-calibration-btn" class="btn btn-primary btn-lg">Start Calibration</button>
 </div>
 
-<!-- Dots are injected by calibration.js from js_vars.calibration_points
-     (defined in get_calibration_points() in __init__.py). -->
-<div id="calibration-overlay"></div>
+<!-- Dots are injected by calibration.js from js_vars (defined in __init__.py).
+     The first group adapts the model; the rest are held out to measure error. -->
+<div id="calibration-overlay">
+    <div id="calibration-phase"></div>
+    <div id="calibration-live-hint" class="hidden"></div>
+    <!-- Revealed once the tracker has repeatedly failed to see a face. Without
+         it, a participant whose webcam cannot find them is stuck on this dot
+         forever: the dot will not advance and there is no Next button. -->
+    <div id="calibration-escape" class="hidden">
+        <button type="button" id="skip-calibration-btn" class="btn btn-outline-light btn-sm">
+            I can't complete calibration — continue without eye tracking
+        </button>
+    </div>
+</div>
 
 <input type="hidden" name="eyetrack_calibration_rmse" id="eyetrack_calibration_rmse" value="">
 
 <div id="calibration-complete" class="hidden">
     <div class="alert alert-success">
-        <h4>Calibration Complete!</h4>
-        <p>Your eye tracking has been calibrated successfully.</p>
+        <h4>Calibration Complete</h4>
         <p>
-            Calibration error: <span id="calibration-rmse-value">—</span> pixels
-            (lower is better).
+            Accuracy on points not used for calibration:
+            <span id="calibration-rmse-value">—</span> pixels (lower is better).
         </p>
         <p id="calibration-rmse-hint" class="hidden">
-            Calibration looks rough — recalibrating with steadier head position
+            Calibration looks rough — recalibrating with a steadier head position
             often helps.
         </p>
+        <p id="calibration-save-status"></p>
     </div>
     <p>You can recalibrate if needed, or proceed to the task.</p>
     <button type="button" id="recalibrate-btn" class="btn btn-secondary">Recalibrate</button>
+</div>
+
+<div id="tracker-unavailable" class="hidden">
+    <div class="alert alert-warning">
+        <h4>Eye tracking is unavailable</h4>
+        <p>
+            The eye tracker could not start on this device. You can still complete
+            the task; no gaze data will be recorded.
+        </p>
+        <p style="font-size: 0.85em; opacity: 0.7;" id="tracker-unavailable-detail"></p>
+    </div>
+</div>
+
+<!-- Always in the document, revealed once the participant can move on. Keeping
+     the only way forward inside #calibration-complete stranded anyone whose
+     tracker failed to start. -->
+<div id="proceed" class="hidden">
     {{ next_button }}
 </div>
 
 <script type="module">
 import { loadWebEyeTrack } from '{{ static "webeyetrack-loader.js" }}';
 
-loadWebEyeTrack('{{ static "webeyetrack/webeyetrack.js" }}').then(() => {
+function hideLoading() {
     document.getElementById('loading-overlay').classList.add('hidden');
-}).catch(error => {
-    console.error('Failed to load WebEyeTrack:', error);
-    document.getElementById('loading-overlay').innerHTML = `
-        <p style="color: #ff6b6b;">Error loading eye tracking model.</p>
-        <p>Please refresh the page to try again.</p>
-        <p style="font-size: 0.8em; opacity: 0.7;">${error.message}</p>
-    `;
-});
+}
+
+loadWebEyeTrack('{{ static "webeyetrack/webeyetrack.js" }}')
+    .then(hideLoading)
+    .catch(error => {
+        console.error('Failed to load WebEyeTrack:', error);
+        // Hide the overlay before showing the error: it is full-screen with a
+        // z-index above everything, so leaving it up traps the participant on
+        // this page with no way to continue and no working retry.
+        hideLoading();
+        document.getElementById('pre-calibration').classList.add('hidden');
+        document.getElementById('tracker-unavailable').classList.remove('hidden');
+        document.getElementById('tracker-unavailable-detail').textContent = error.message;
+        document.getElementById('proceed').classList.remove('hidden');
+    });
 </script>
 
 <script>{{ include_sibling 'gaze_tracker.js' }}</script>
+<script>{{ include_sibling 'calibration_math.js' }}</script>
 <script>{{ include_sibling 'calibration.js' }}</script>
 
 {{ endblock }}

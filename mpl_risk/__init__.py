@@ -29,6 +29,9 @@ class C(BaseConstants):
     LOTTERY_PROB = 0.5
     PERCENT_MULTIPLIER = 100
     CALIBRATION_DELAY_MS = 500
+    # The tracker keeps a support set of this size. Passed through to the
+    # library so it matches the number of points we actually present.
+    MAX_CALIBRATION_POINTS = 5
 
     # choice_N values
     OPTION_A = 1  # the safe amount for that row
@@ -117,11 +120,42 @@ def calculate_payoff(player: Player):
 
 
 def get_calibration_points():
+    """
+    Points the model is adapted to, as percentages of the viewport.
+
+    Exactly C.MAX_CALIBRATION_POINTS of them: the tracker keeps a support set of
+    that size and evicts the oldest, so a longer list would silently discard the
+    points clicked first.
+    """
     return [
-        {'x': 10, 'y': 10}, {'x': 50, 'y': 10}, {'x': 90, 'y': 10},
-        {'x': 10, 'y': 50}, {'x': 50, 'y': 50}, {'x': 90, 'y': 50},
-        {'x': 10, 'y': 90}, {'x': 50, 'y': 90}, {'x': 90, 'y': 90},
+        {'x': 10, 'y': 10}, {'x': 90, 'y': 10},
+        {'x': 50, 'y': 50},
+        {'x': 10, 'y': 90}, {'x': 90, 'y': 90},
     ]
+
+
+def get_validation_points():
+    """
+    Points used only to measure error, never to adapt the model.
+
+    Calibration error measured on the same points the model was fit to is
+    optimistic by construction. These are held out, so `eyetrack_calibration_rmse`
+    is an honest estimate of accuracy on unseen screen locations.
+    """
+    return [
+        {'x': 50, 'y': 10},
+        {'x': 10, 'y': 50}, {'x': 90, 'y': 50},
+        {'x': 50, 'y': 90},
+    ]
+
+
+def get_calibration_key(player: Player):
+    """
+    Where this participant's personalised model is stored in the browser's
+    IndexedDB. Keyed by participant so two people sharing a machine cannot
+    inherit each other's calibration.
+    """
+    return f'webeyetrack-calib-{player.participant.code}'
 
 
 class Consent(Page):
@@ -135,13 +169,22 @@ class Calibration(Page):
 
     @staticmethod
     def vars_for_template(player: Player):
-        return dict(num_points=len(get_calibration_points()))
+        return dict(
+            num_points=len(get_calibration_points()) + len(get_validation_points()),
+        )
 
     @staticmethod
     def js_vars(player: Player):
         return dict(
             calibration_points=get_calibration_points(),
+            validation_points=get_validation_points(),
             delay_ms=C.CALIBRATION_DELAY_MS,
+            max_calibration_points=C.MAX_CALIBRATION_POINTS,
+            calibration_key=get_calibration_key(player),
+            # The server-side record of consent. Relying on sessionStorage alone
+            # silently disables tracking for a participant who consented but
+            # resumed in a new tab.
+            eyetrack_consent=bool(player.eyetrack_consent),
         )
 
 
@@ -173,6 +216,13 @@ class Decision(Page):
         )
 
     @staticmethod
+    def js_vars(player: Player):
+        return dict(
+            calibration_key=get_calibration_key(player),
+            eyetrack_consent=bool(player.eyetrack_consent),
+        )
+
+    @staticmethod
     def before_next_page(player: Player, timeout_happened):
         calculate_payoff(player)
 
@@ -196,14 +246,19 @@ def custom_export(players):
     Long-format export of every gaze sample, one row per sample.
     Available in oTree's Data tab as the "custom" export.
 
-    `is_mock` is rendered as 0/1 (rather than False/True) so it loads
-    cleanly into pandas/R as a numeric column.
+    Columns:
+      x, y            screen pixels, or empty when no face was detected
+      norm_x, norm_y  the library's normalized point of gaze, in [-0.5, 0.5]
+      gaze_state      'open' when a face was tracked; anything else means the
+                      coordinates are empty rather than a real fixation
+      t_perf          milliseconds since page load (monotonic; use this)
+      frame_time      the camera's clock, in seconds since the stream started
     """
     yield [
         'session_code', 'participant_code', 'page',
         'eyetrack_init_status', 'sample_index',
         'x', 'y', 'norm_x', 'norm_y',
-        'gaze_state', 'confidence', 't_perf', 'timestamp', 'is_mock',
+        'gaze_state', 't_perf', 'frame_time',
     ]
 
     for player in players:
@@ -231,7 +286,6 @@ def custom_export(players):
                 i,
                 s.get('x'), s.get('y'),
                 s.get('norm_x'), s.get('norm_y'),
-                s.get('gaze_state'), s.get('confidence'),
-                s.get('t_perf'), s.get('timestamp'),
-                1 if s.get('is_mock') else 0,
+                s.get('gaze_state'),
+                s.get('t_perf'), s.get('frame_time'),
             ]
