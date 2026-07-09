@@ -30,6 +30,16 @@ class C(BaseConstants):
     PERCENT_MULTIPLIER = 100
     CALIBRATION_DELAY_MS = 500
 
+    # choice_N values
+    OPTION_A = 1  # the safe amount for that row
+    OPTION_B = 2  # the lottery
+
+    # lottery_outcome encoding
+    NO_CHOICE = -1  # the drawn row was never answered (see calculate_payoff)
+    OUTCOME_SAFE = 0
+    OUTCOME_LOTTERY_HIGH = 1
+    OUTCOME_LOTTERY_LOW = 2
+
 
 class Subsession(BaseSubsession):
     pass
@@ -70,24 +80,39 @@ class Player(BasePlayer):
 
 
 def get_safe_amount(row):
-    increment = (C.SAFE_MAX - C.SAFE_MIN) / (C.NUM_CHOICES - 1)
-    return C.SAFE_MIN + increment * (row - 1)
+    """
+    Safe amount offered on `row`, interpolated between SAFE_MIN and SAFE_MAX.
+
+    Scale before dividing. Currency quantizes to whole cents, so computing the
+    per-row increment first rounds 0.2055... up to 0.21 and walks the top row
+    past SAFE_MAX (row 10 paid 3.89 against a declared maximum of 3.85).
+    """
+    span = C.SAFE_MAX - C.SAFE_MIN
+    return C.SAFE_MIN + span * (row - 1) / (C.NUM_CHOICES - 1)
 
 
 def calculate_payoff(player: Player):
     player.selected_row = random.randint(1, C.NUM_CHOICES)
-    choice_field = f'choice_{player.selected_row}'
-    choice = getattr(player, choice_field)
-    if choice == 1:
+    choice = getattr(player, f'choice_{player.selected_row}')
+
+    if choice == C.OPTION_A:
         player.final_payoff = get_safe_amount(player.selected_row)
-        player.lottery_outcome = 0
-    else:
+        player.lottery_outcome = C.OUTCOME_SAFE
+    elif choice == C.OPTION_B:
         if random.random() < C.LOTTERY_PROB:
             player.final_payoff = C.LOTTERY_HIGH
-            player.lottery_outcome = 1
+            player.lottery_outcome = C.OUTCOME_LOTTERY_HIGH
         else:
             player.final_payoff = C.LOTTERY_LOW
-            player.lottery_outcome = 2
+            player.lottery_outcome = C.OUTCOME_LOTTERY_LOW
+    else:
+        # The drawn row holds no valid choice. oTree's admin "Advance
+        # participants" auto-submits a missing IntegerField as 0, which an
+        # `if choice == 1 ... else` would resolve as the lottery — paying out
+        # a gamble the participant never accepted. Record it instead.
+        player.final_payoff = cu(0)
+        player.lottery_outcome = C.NO_CHOICE
+
     player.payoff = player.final_payoff
 
 
@@ -189,7 +214,15 @@ def custom_export(players):
             samples = json.loads(raw)
         except (ValueError, TypeError):
             continue
+        # eyetrack_gaze_data is written by the participant's browser. Anything
+        # that parses as JSON reaches here, so check the shape too: a bare
+        # number, string, or object would otherwise raise out of this generator
+        # and abort the export for every participant in the session.
+        if not isinstance(samples, list):
+            continue
         for i, s in enumerate(samples):
+            if not isinstance(s, dict):
+                continue
             yield [
                 player.session.code,
                 player.participant.code,

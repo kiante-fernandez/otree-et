@@ -103,6 +103,46 @@ def test_skips_player_with_corrupt_json():
     assert len(rows) == 1  # header only
 
 
+def test_survives_valid_json_of_the_wrong_shape():
+    """
+    eyetrack_gaze_data is written by the participant's browser. These values all
+    parse as JSON, so the json.loads guard lets them through; each one used to
+    raise TypeError or AttributeError out of the generator and abort the whole
+    export for every participant in the session.
+    """
+    for raw in ['123', 'null', 'true', '"abc"', '[1,2,3]', '{"x":1}', '[[1,2]]']:
+        player = SimpleNamespace(
+            eyetrack_gaze_data=raw,
+            eyetrack_init_status='ok',
+            session=SimpleNamespace(code='S'),
+            participant=SimpleNamespace(code='P'),
+        )
+        rows = list(custom_export([player]))
+        assert len(rows) == 1, f"{raw!r} should yield header only, got {len(rows)} rows"
+
+
+def test_one_bad_player_does_not_abort_the_whole_export():
+    """A single malformed row must not cost the researcher every other row."""
+    good = make_player([{'x': 1, 'y': 2}], participant='GOOD')
+    bad = SimpleNamespace(
+        eyetrack_gaze_data='[1,2,3]',
+        eyetrack_init_status='ok',
+        session=SimpleNamespace(code='S'),
+        participant=SimpleNamespace(code='BAD'),
+    )
+    rows = list(custom_export([bad, good]))
+    assert len(rows) == 2, f"expected header + GOOD's one sample, got {len(rows)}"
+    assert rows[1][1] == 'GOOD'
+
+
+def test_skips_non_dict_samples_inside_a_valid_list():
+    """A list that mixes real samples with junk keeps the real ones."""
+    player = make_player([{'x': 1, 'y': 2}, 7, None, {'x': 3, 'y': 4}])
+    rows = list(custom_export([player]))
+    assert len(rows) == 3, f"expected header + 2 real samples, got {len(rows)}"
+    assert [r[5] for r in rows[1:]] == [1, 3]
+
+
 def test_init_status_propagates_per_row():
     samples = [{'x': 1, 'y': 2, 'is_mock': True}]
     player = make_player(samples, init_status='init_failed')
