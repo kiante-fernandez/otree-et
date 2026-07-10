@@ -172,13 +172,14 @@
 </div>
 
 <input type="hidden" name="eyetrack_calibration_rmse" id="eyetrack_calibration_rmse" value="">
+<input type="hidden" name="eyetrack_calibration_rmse_fraction" id="eyetrack_calibration_rmse_fraction" value="">
 
 <div id="calibration-complete" class="hidden">
     <div class="alert alert-success">
         <h4>Calibration Complete</h4>
         <p>
             Accuracy on points not used for calibration:
-            <span id="calibration-rmse-value">—</span> pixels (lower is better).
+            <span id="calibration-rmse-value">—</span> (lower is better).
         </p>
         <p id="calibration-rmse-hint" class="hidden">
             Calibration looks rough — recalibrating with a steadier head position

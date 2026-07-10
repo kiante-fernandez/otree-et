@@ -26,9 +26,10 @@ import sqlite3
 import statistics
 import sys
 
-# Heuristic thresholds. Tune for your own setup and screen size.
-RMSE_GOOD_PX = 100
-RMSE_OK_PX = 200
+# Heuristic thresholds. Calibration error is judged as a fraction of the screen
+# diagonal, because a pixel threshold means something different on every monitor.
+RMSE_GOOD_FRACTION = 0.06
+RMSE_OK_FRACTION = 0.12
 MIN_OPEN_FRACTION = 0.60
 MIN_SAMPLES = 30
 
@@ -61,17 +62,38 @@ def grade_player(row: sqlite3.Row) -> Grade:
     if not restored:
         g.fail("the task page used the UNCALIBRATED base model")
 
+    vw = row["eyetrack_viewport_width"] or 0
+    vh = row["eyetrack_viewport_height"] or 0
+    if vw and vh:
+        print(f"  viewport                   : {vw} x {vh} px")
+    else:
+        g.warn("no viewport recorded; gaze pixel coordinates cannot be interpreted")
+    if row["eyetrack_viewport_changed"]:
+        g.warn("the window was resized during the task; samples before and after "
+               "the resize are scaled to different viewports")
+
     rmse = row["eyetrack_calibration_rmse"]
+    fraction = row["eyetrack_calibration_rmse_fraction"]
     if rmse is None:
         print("  calibration RMSE           : (not measured — calibration skipped)")
         g.fail("calibration was skipped; this participant's gaze is uncalibrated")
     else:
-        band = "good" if rmse <= RMSE_GOOD_PX else "ok" if rmse <= RMSE_OK_PX else "poor"
-        print(f"  calibration RMSE           : {rmse:.0f} px on held-out points ({band})")
+        if not fraction and vw and vh:
+            fraction = rmse / (vw ** 2 + vh ** 2) ** 0.5
+        pct = f"{fraction:.1%} of the screen diagonal" if fraction else "screen size unknown"
+        band = (
+            "good" if fraction and fraction <= RMSE_GOOD_FRACTION
+            else "ok" if fraction and fraction <= RMSE_OK_FRACTION
+            else "poor"
+        )
+        print(f"  calibration RMSE           : {rmse:.0f} px = {pct} ({band})")
         if rmse <= 0:
             g.fail("RMSE is zero, which means no validation point was ever measured")
-        elif rmse > RMSE_OK_PX:
-            g.warn(f"calibration is poor ({rmse:.0f} px); consider excluding or recalibrating")
+        elif fraction and fraction > RMSE_OK_FRACTION:
+            g.warn(
+                f"calibration is poor ({fraction:.1%} of the screen); consider "
+                "recalibrating with a steadier head position, or excluding"
+            )
 
     raw = row["eyetrack_gaze_data"] or ""
     try:

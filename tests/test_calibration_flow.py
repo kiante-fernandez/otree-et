@@ -112,14 +112,24 @@ def run() -> int:
 
         rmse_text = (page.text_content("#calibration-rmse-value") or "").strip()
         assert_(
-            re.fullmatch(r"\d+", rmse_text) is not None,
-            f"a numeric RMSE is displayed (got {rmse_text!r})",
+            re.fullmatch(r"\d+ px \(\d+(\.\d+)?% of screen\)", rmse_text) is not None,
+            f"RMSE is shown in pixels and as a share of the screen (got {rmse_text!r})",
         )
 
         field = page.evaluate("document.getElementById('eyetrack_calibration_rmse').value")
         assert_(
             field not in ("", "0") and float(field) > 0,
             f"eyetrack_calibration_rmse is positive (got {field!r})",
+        )
+
+        # A pixel error is not comparable across monitors; this is what an
+        # analyst should filter on.
+        frac = page.evaluate(
+            "document.getElementById('eyetrack_calibration_rmse_fraction').value"
+        )
+        assert_(
+            frac not in ("", "0") and 0 < float(frac) < 1,
+            f"eyetrack_calibration_rmse_fraction is a sane fraction (got {frac!r})",
         )
 
         print("\n[3/3] The personalised model was saved")

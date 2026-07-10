@@ -85,7 +85,15 @@ class SimpleGazeTracker {
     this.droppedNoFace = 0;
     this.droppedDuplicate = 0;
 
+    // Sample coordinates are screen pixels, so they mean nothing without the
+    // size of the screen they were measured on. Record it. A resize mid-task
+    // silently rescales every subsequent sample, so record that too.
+    this.viewportWidth = 0;
+    this.viewportHeight = 0;
+    this.viewportChanged = false;
+
     this._rejectReady = null;
+    this._onResize = null;
   }
 
   hasConsent() {
@@ -302,6 +310,9 @@ class SimpleGazeTracker {
     set('eyetrack_gaze_data', JSON.stringify(this.allSamples));
     set('eyetrack_init_status', this.initStatus);
     set('eyetrack_calibration_restored', this.calibrationRestored ? '1' : '0');
+    set('eyetrack_viewport_width', this.viewportWidth.toString());
+    set('eyetrack_viewport_height', this.viewportHeight.toString());
+    set('eyetrack_viewport_changed', this.viewportChanged ? '1' : '0');
 
     // The page records the first uncaught error there. Do not overwrite it:
     // whatever failed first is the more informative diagnosis.
@@ -314,6 +325,16 @@ class SimpleGazeTracker {
   startTracking() {
     if (this.isTracking || !this.isInitialized) return;
     this.isTracking = true;
+
+    this.viewportWidth = window.innerWidth;
+    this.viewportHeight = window.innerHeight;
+    this._onResize = () => {
+      this.viewportChanged = true;
+      this.viewportWidth = window.innerWidth;
+      this.viewportHeight = window.innerHeight;
+    };
+    window.addEventListener('resize', this._onResize);
+
     this.updateStatus('active', true);
   }
 
@@ -326,6 +347,11 @@ class SimpleGazeTracker {
   async stopTracking() {
     this.isTracking = false;
     if (this.isInitialized) this.updateStatus('stopped', false);
+
+    if (this._onResize) {
+      window.removeEventListener('resize', this._onResize);
+      this._onResize = null;
+    }
 
     this.writeFormFields();
 

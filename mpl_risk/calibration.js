@@ -19,7 +19,13 @@ const CALIBRATION_POINTS = js_vars.calibration_points;
 const VALIDATION_POINTS = js_vars.validation_points;
 const ALL_POINTS = CALIBRATION_POINTS.concat(VALIDATION_POINTS);
 
-const { pctToNorm, gazeError, computeRMSE } = window.calibrationMath;
+const { pctToNorm, gazeError, computeRMSE, rmseFraction } = window.calibrationMath;
+
+// Quality bands, as a fraction of the screen diagonal. A pixel threshold would
+// mean something different on every participant's monitor. Heuristic: tune for
+// your own study and screen sizes.
+const RMSE_GOOD_FRACTION = 0.06;
+const RMSE_OK_FRACTION = 0.12;
 
 // How many times the tracker may fail to see a face before we offer the
 // participant a way out. Without an escape they cannot advance the dot and
@@ -136,20 +142,24 @@ async function finishCalibration() {
   completion.classList.remove('hidden');
 
   const rmse = computeRMSE(validationErrors);
+  const fraction = rmseFraction(rmse, window.innerWidth, window.innerHeight);
 
   const rmseInput = document.getElementById('eyetrack_calibration_rmse');
   if (rmseInput) rmseInput.value = rmse.toString();
 
+  // Screen-relative, so it is comparable across participants' monitors.
+  const fractionInput = document.getElementById('eyetrack_calibration_rmse_fraction');
+  if (fractionInput) fractionInput.value = fraction.toString();
+
   const rmseDisplay = document.getElementById('calibration-rmse-value');
   if (rmseDisplay) {
-    rmseDisplay.textContent = rmse > 0 ? rmse.toFixed(0) : 'n/a';
-    // Quality bands are heuristic. Tune in your own study.
+    rmseDisplay.textContent = rmse > 0 ? `${rmse.toFixed(0)} px (${(fraction * 100).toFixed(1)}% of screen)` : 'n/a';
     rmseDisplay.className =
-      rmse <= 0   ? '' :
-      rmse <= 100 ? 'rmse-good' :
-      rmse <= 200 ? 'rmse-ok'   :
-                    'rmse-poor';
-    if (rmse > 200) {
+      rmse <= 0                       ? '' :
+      fraction <= RMSE_GOOD_FRACTION  ? 'rmse-good' :
+      fraction <= RMSE_OK_FRACTION    ? 'rmse-ok'   :
+                                        'rmse-poor';
+    if (fraction > RMSE_OK_FRACTION) {
       const hint = document.getElementById('calibration-rmse-hint');
       if (hint) hint.classList.remove('hidden');
     }

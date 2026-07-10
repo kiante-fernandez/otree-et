@@ -16,6 +16,9 @@ const FIELD_IDS = [
   'eyetrack_gaze_data',
   'eyetrack_init_status',
   'eyetrack_calibration_restored',
+  'eyetrack_viewport_width',
+  'eyetrack_viewport_height',
+  'eyetrack_viewport_changed',
   'eyetrack_runtime_error',
 ];
 
@@ -181,6 +184,35 @@ test('a page that never restored a calibration records that fact', async () => {
   t2.calibrationRestored = true;
   await t2.stopTracking();
   assert.equal(dom2.elements.get('eyetrack_calibration_restored').value, '1');
+});
+
+test('the viewport the gaze was measured on is recorded', async () => {
+  // x and y are screen pixels. Without the screen they were measured on, they
+  // cannot be compared across participants or turned into regions of interest.
+  const { tracker, dom } = newTracker();
+  tracker.isInitialized = true;
+  tracker.startTracking();
+  await tracker.stopTracking();
+
+  assert.equal(dom.elements.get('eyetrack_viewport_width').value, '1000');
+  assert.equal(dom.elements.get('eyetrack_viewport_height').value, '500');
+  assert.equal(dom.elements.get('eyetrack_viewport_changed').value, '0');
+});
+
+test('a window resize during tracking is flagged', async () => {
+  const { tracker, dom } = newTracker();
+  tracker.isInitialized = true;
+  tracker.startTracking();
+
+  // Every sample after a resize is scaled to a different viewport.
+  dom.win.innerWidth = 800;
+  dom.win.innerHeight = 400;
+  tracker._onResize();
+
+  await tracker.stopTracking();
+
+  assert.equal(dom.elements.get('eyetrack_viewport_changed').value, '1');
+  assert.equal(dom.elements.get('eyetrack_viewport_width').value, '800');
 });
 
 test('the first uncaught page error is not overwritten by the tracker', async () => {

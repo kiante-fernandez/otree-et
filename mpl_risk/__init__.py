@@ -81,7 +81,17 @@ class Player(BasePlayer):
     # Error in pixels on the held-out validation points. Empty means the
     # participant skipped calibration: their gaze is from an uncalibrated model.
     eyetrack_calibration_rmse = models.FloatField(blank=True)
+    # The same error as a fraction of the screen diagonal. Pixels are not
+    # comparable across participants' monitors; this is.
+    eyetrack_calibration_rmse_fraction = models.FloatField(blank=True)
     eyetrack_sample_count = models.IntegerField(initial=0)
+    # Gaze coordinates are screen pixels, so they are meaningless without the
+    # size of the screen they were measured on.
+    eyetrack_viewport_width = models.IntegerField(initial=0)
+    eyetrack_viewport_height = models.IntegerField(initial=0)
+    # True if the window was resized while tracking. Every sample after the
+    # resize is scaled to a different viewport than the ones before it.
+    eyetrack_viewport_changed = models.BooleanField(initial=False)
     eyetrack_gaze_data = models.LongStringField(blank=True)  # JSON array of samples
     # Outcome of eye-tracker initialization. One of:
     #   ok           — the gaze model loaded and samples were collected
@@ -179,7 +189,7 @@ class Consent(Page):
 
 class Calibration(Page):
     form_model = 'player'
-    form_fields = ['eyetrack_calibration_rmse']
+    form_fields = ['eyetrack_calibration_rmse', 'eyetrack_calibration_rmse_fraction']
 
     @staticmethod
     def vars_for_template(player: Player):
@@ -207,7 +217,8 @@ class Decision(Page):
     form_fields = [f'choice_{row}' for row in range(1, C.NUM_CHOICES + 1)] + [
         'eyetrack_sample_count', 'eyetrack_gaze_data',
         'eyetrack_init_status', 'eyetrack_calibration_restored',
-        'eyetrack_runtime_error',
+        'eyetrack_viewport_width', 'eyetrack_viewport_height',
+        'eyetrack_viewport_changed', 'eyetrack_runtime_error',
     ]
 
     @staticmethod

@@ -173,8 +173,11 @@ apply to every page that follows.
 |-------|---------|
 | `eyetrack_consent` | Whether camera permission was granted |
 | `eyetrack_calibration_rmse` | Error in pixels on the four held-out validation points (lower is better). **Empty means calibration was skipped** — the gaze below comes from an uncalibrated model. |
+| `eyetrack_calibration_rmse_fraction` | The same error as a fraction of the screen diagonal. **Compare participants on this, not on pixels.** |
 | `eyetrack_sample_count` | Total gaze samples collected |
 | `eyetrack_gaze_data` | JSON array of all gaze samples |
+| `eyetrack_viewport_width`, `eyetrack_viewport_height` | The screen the gaze was measured on. Sample `x`/`y` are pixels and mean nothing without it. |
+| `eyetrack_viewport_changed` | `True` if the window was resized mid-task, so samples before and after are scaled to different viewports |
 | `eyetrack_init_status` | `ok`, `no_consent`, `init_failed`, or `unknown` |
 | `eyetrack_calibration_restored` | Whether the tracked page used the model **this participant** calibrated. `False` means their gaze came from the uncalibrated base model, whatever the RMSE says. |
 | `eyetrack_runtime_error` | First uncaught browser error on the tracked page (empty if none) |
@@ -182,9 +185,18 @@ apply to every page that follows.
 `eyetrack_calibration_rmse` is measured on points the model was *not* fitted to.
 Error on the points used for calibration would be optimistic by construction.
 
+A pixel error is not comparable across participants: 265 px is 16% of a
+1512-wide laptop window and 7% of a 3440-wide monitor. Use
+`eyetrack_calibration_rmse_fraction`. As a rough guide, under 6% of the screen
+diagonal is good, under 12% is usable, beyond that is poor.
+
 For a participant whose gaze you intend to analyse, you want
-`eyetrack_init_status = 'ok'`, `eyetrack_calibration_restored = True`, and an
-`eyetrack_calibration_rmse` you are happy with.
+`eyetrack_init_status = 'ok'`, `eyetrack_calibration_restored = True`,
+`eyetrack_viewport_changed = False`, and an error you are happy with.
+
+Expect around 20–30 samples per second. Vertical gaze is markedly less accurate
+than horizontal — a webcam sees far less vertical eye movement — so most of the
+error is usually in `y`.
 
 ### Per gaze sample
 

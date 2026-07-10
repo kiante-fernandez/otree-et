@@ -12,7 +12,7 @@ import { dirname, join } from 'node:path';
 
 const require = createRequire(import.meta.url);
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
-const { pctToNorm, gazeError, computeRMSE } = require(join(ROOT, 'mpl_risk', 'calibration_math.js'));
+const { pctToNorm, gazeError, computeRMSE, rmseFraction } = require(join(ROOT, 'mpl_risk', 'calibration_math.js'));
 
 test('pctToNorm maps the viewport onto WebEyeTrack normalized coordinates', () => {
   assert.equal(pctToNorm(0), -0.5);
@@ -43,6 +43,19 @@ test('computeRMSE combines unequal errors correctly', () => {
 
 test('computeRMSE with no measurements returns 0, which the page renders as n/a', () => {
   assert.equal(computeRMSE([]), 0);
+});
+
+test('rmseFraction expresses the error relative to the screen', () => {
+  // A 265 px error on a 1512x747 window is a much bigger deal than on a 3440x1440 one.
+  const laptop = rmseFraction(265, 1512, 747);
+  const monitor = rmseFraction(265, 3440, 1440);
+  assert.ok(Math.abs(laptop - 265 / Math.hypot(1512, 747)) < 1e-12);
+  assert.ok(laptop > monitor, 'the same pixel error is worse on a smaller screen');
+  assert.ok(laptop > 0.15 && laptop < 0.16, `expected ~15.7%, got ${laptop}`);
+});
+
+test('rmseFraction is 0 when the viewport is unknown, rather than dividing by zero', () => {
+  assert.equal(rmseFraction(265, 0, 0), 0);
 });
 
 test('a perfect calibration has zero error and is distinguishable from no measurement', () => {

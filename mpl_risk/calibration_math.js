@@ -37,5 +37,18 @@
     return Math.sqrt(sumSquares / errors.length);
   }
 
-  return { pctToNorm, gazeError, computeRMSE };
+  /**
+   * The same error as a fraction of the screen diagonal.
+   *
+   * A pixel error means nothing on its own: 265 px is a fifth of a 1512-wide
+   * laptop window and a twelfth of a 3440-wide monitor. Quality thresholds have
+   * to be expressed against the screen, or they silently mean different things
+   * for different participants.
+   */
+  function rmseFraction(rmsePx, viewportWidth, viewportHeight) {
+    const diagonal = Math.hypot(viewportWidth, viewportHeight);
+    return diagonal > 0 ? rmsePx / diagonal : 0;
+  }
+
+  return { pctToNorm, gazeError, computeRMSE, rmseFraction };
 });
