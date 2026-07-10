@@ -176,10 +176,15 @@ apply to every page that follows.
 | `eyetrack_sample_count` | Total gaze samples collected |
 | `eyetrack_gaze_data` | JSON array of all gaze samples |
 | `eyetrack_init_status` | `ok`, `no_consent`, `init_failed`, or `unknown` |
+| `eyetrack_calibration_restored` | Whether the tracked page used the model **this participant** calibrated. `False` means their gaze came from the uncalibrated base model, whatever the RMSE says. |
 | `eyetrack_runtime_error` | First uncaught browser error on the tracked page (empty if none) |
 
 `eyetrack_calibration_rmse` is measured on points the model was *not* fitted to.
 Error on the points used for calibration would be optimistic by construction.
+
+For a participant whose gaze you intend to analyse, you want
+`eyetrack_init_status = 'ok'`, `eyetrack_calibration_restored = True`, and an
+`eyetrack_calibration_rmse` you are happy with.
 
 ### Per gaze sample
 
@@ -211,17 +216,37 @@ twice.
 ## Testing
 
 ```bash
-# Quick check (no browser needed)
-python tests/test_custom_export.py
+# Fast checks, no browser (about a second)
+python -m pytest tests/
+node --test tests/js/*.test.mjs
 
-# Full end-to-end test in a headless browser with a synthetic camera
+# Browser tests with a synthetic camera
 pip install playwright
 python -m playwright install chromium
-otree devserver            # in one terminal
-python tests/smoke_e2e.py  # in another
+otree devserver                              # in one terminal
+python tests/smoke_e2e.py                    # in another
+python tests/test_calibration_persistence.py # calibration survives the page change
+python tests/test_offline.py                 # works with every CDN blocked
 ```
 
 See [`tests/README.md`](tests/README.md) for what each test checks.
+
+### Checking a real session
+
+The automated tests use a synthetic camera with no face in it. They prove the
+data path works, that failures are reported rather than hidden, and that
+calibration persists across pages — but they cannot tell you whether the tracker
+is *accurate*. For that, run the demo yourself with a real webcam, calibrate
+properly, then stop the server and run:
+
+```bash
+python tools/check_live_session.py
+```
+
+It grades the most recent participant and names anything that looks wrong: the
+tracker not starting, the task page falling back to an uncalibrated model,
+calibration skipped, too few samples, a webcam that rarely saw a face, gaze that
+never moved, duplicate frames, or coordinates on a no-face sample.
 
 ## Production deployment
 

@@ -15,6 +15,7 @@ const FIELD_IDS = [
   'eyetrack_sample_count',
   'eyetrack_gaze_data',
   'eyetrack_init_status',
+  'eyetrack_calibration_restored',
   'eyetrack_runtime_error',
 ];
 
@@ -143,6 +144,43 @@ test('init() never falls back to fabricated samples', async () => {
   await tracker.stopTracking();
   assert.equal(dom.elements.get('eyetrack_gaze_data').value, '[]', 'no synthetic samples');
   assert.equal(dom.elements.get('eyetrack_init_status').value, 'init_failed');
+});
+
+test('waitForReady() resolves when the worker reports ready, and records the restore flag', async () => {
+  const { tracker } = newTracker();
+  tracker.proxy = { calibrate() {}, saveCalibration() {} };
+  tracker.calibrationKey = 'k';
+  tracker.readyTimeoutMs = 2000;
+
+  const pending = tracker.waitForReady();
+  // The worker's 'ready' message carries whether a stored calibration was found.
+  tracker.proxy.onReady(true);
+  await pending;   // must not hang
+
+  assert.equal(tracker.calibrationRestored, true);
+});
+
+test('waitForReady() rejects when the worker reports an error', async () => {
+  const { tracker } = newTracker();
+  tracker.proxy = {};
+  tracker.readyTimeoutMs = 2000;
+
+  const pending = tracker.waitForReady();
+  tracker._rejectReady(new Error('init: model 404'));
+
+  await assert.rejects(pending, /model 404/);
+});
+
+test('a page that never restored a calibration records that fact', async () => {
+  const { tracker, dom } = newTracker();
+  tracker.calibrationRestored = false;
+  await tracker.stopTracking();
+  assert.equal(dom.elements.get('eyetrack_calibration_restored').value, '0');
+
+  const { tracker: t2, dom: dom2 } = newTracker();
+  t2.calibrationRestored = true;
+  await t2.stopTracking();
+  assert.equal(dom2.elements.get('eyetrack_calibration_restored').value, '1');
 });
 
 test('the first uncaught page error is not overwritten by the tracker', async () => {

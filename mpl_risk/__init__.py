@@ -89,6 +89,10 @@ class Player(BasePlayer):
     #   init_failed  — the tracker could not start; no samples were recorded
     #   unknown      — the page never reported a status (e.g. crash before init)
     eyetrack_init_status = models.StringField(initial='unknown')
+    # Whether the tracked page measured gaze with the model this participant
+    # calibrated, or with the uncalibrated base model. False means the gaze
+    # below is not calibrated to them, whatever eyetrack_calibration_rmse says.
+    eyetrack_calibration_restored = models.BooleanField(initial=False)
     # First uncaught JS error during the tracked page (empty if no crash).
     # A non-empty value means sample collection may have stopped early.
     eyetrack_runtime_error = models.LongStringField(blank=True)
@@ -202,7 +206,8 @@ class Decision(Page):
     form_model = 'player'
     form_fields = [f'choice_{row}' for row in range(1, C.NUM_CHOICES + 1)] + [
         'eyetrack_sample_count', 'eyetrack_gaze_data',
-        'eyetrack_init_status', 'eyetrack_runtime_error',
+        'eyetrack_init_status', 'eyetrack_calibration_restored',
+        'eyetrack_runtime_error',
     ]
 
     @staticmethod

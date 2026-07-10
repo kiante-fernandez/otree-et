@@ -73,6 +73,11 @@ class SimpleGazeTracker {
     this.initStatus = 'unknown';
     this.runtimeError = '';
 
+    // Whether this page is measuring gaze with the model the participant
+    // calibrated, or with the uncalibrated base model. Recorded with the data:
+    // it is not something you want to discover during analysis.
+    this.calibrationRestored = false;
+
     this.latestGaze = null;
     this.latestGazeAt = 0;
     this.lastFrameTimestamp = null;
@@ -172,8 +177,19 @@ class SimpleGazeTracker {
         this._rejectReady = null;
         fn(arg);
       };
+
       this._rejectReady = settle(reject);
-      this.proxy.onReady = settle(resolve);
+
+      this.proxy.onReady = settle((calibrationRestored) => {
+        this.calibrationRestored = calibrationRestored === true;
+        if (this.calibrationKey && !this.calibrationRestored) {
+          console.warn(
+            `GazeTracker: no stored calibration under "${this.calibrationKey}"; ` +
+            'gaze on this page comes from the uncalibrated base model.'
+          );
+        }
+        resolve();
+      });
     });
   }
 
@@ -285,6 +301,7 @@ class SimpleGazeTracker {
     set('eyetrack_sample_count', this.allSamples.length.toString());
     set('eyetrack_gaze_data', JSON.stringify(this.allSamples));
     set('eyetrack_init_status', this.initStatus);
+    set('eyetrack_calibration_restored', this.calibrationRestored ? '1' : '0');
 
     // The page records the first uncaught error there. Do not overwrite it:
     // whatever failed first is the more informative diagnosis.

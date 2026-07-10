@@ -1,7 +1,7 @@
 From 01f0033a0adff608576924df7e094d69d9b02231 Mon Sep 17 00:00:00 2001
 From: mpl_risk <dev@example.com>
 Date: Thu, 9 Jul 2026 14:25:05 -1000
-Subject: [PATCH 4/4] feat: configurable MediaPipe asset paths
+Subject: [PATCH 4/5] feat: configurable MediaPipe asset paths
 
 FaceLandmarkerClient hardcoded two third-party URLs: the MediaPipe WASM runtime
 on jsDelivr and face_landmarker.task in a Google Cloud Storage bucket. Both are

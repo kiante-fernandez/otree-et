@@ -1,7 +1,7 @@
 From a555302a27e41bdcdf2a7b8be70465977ef48228 Mon Sep 17 00:00:00 2001
 From: mpl_risk <dev@example.com>
 Date: Wed, 8 Jul 2026 22:06:00 -1000
-Subject: [PATCH 1/4] build: exclude examples/ from the library tsc build
+Subject: [PATCH 1/5] build: exclude examples/ from the library tsc build
 
 The exclude entry still names example-app/, a directory that was renamed to
 examples/. ts-loader therefore type-checks the React example apps as part of
