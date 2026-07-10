@@ -49,6 +49,11 @@ class Grade:
 def grade_player(row: sqlite3.Row) -> Grade:
     g = Grade()
 
+    # Databases created before a field was added simply lack the column.
+    cols = set(row.keys())
+    def get(name, default=None):
+        return row[name] if name in cols else default
+
     status = row["eyetrack_init_status"]
     print(f"  init_status                : {status}")
     if status != "ok":
@@ -57,23 +62,35 @@ def grade_player(row: sqlite3.Row) -> Grade:
     if row["eyetrack_runtime_error"]:
         g.fail(f"a JavaScript error occurred: {row['eyetrack_runtime_error'][:90]}")
 
-    restored = bool(row["eyetrack_calibration_restored"])
+    # Price-list consistency. Not an eye-tracking property, but it decides
+    # whether this participant's risk preference is usable at all.
+    switches = get("num_switches")
+    if switches is not None:
+        label = f"row {get('switch_row')}" if get("switch_row") else "none"
+        print(f"  price-list switches        : {switches} (switch point: {label})")
+        if switches > 1:
+            g.warn(
+                f"multiple switching ({switches} transitions); no single switch point, "
+                "so this participant's risk preference is not identified"
+            )
+
+    restored = bool(get("eyetrack_calibration_restored"))
     print(f"  calibration restored       : {restored}")
     if not restored:
         g.fail("the task page used the UNCALIBRATED base model")
 
-    vw = row["eyetrack_viewport_width"] or 0
-    vh = row["eyetrack_viewport_height"] or 0
+    vw = get("eyetrack_viewport_width") or 0
+    vh = get("eyetrack_viewport_height") or 0
     if vw and vh:
         print(f"  viewport                   : {vw} x {vh} px")
     else:
         g.warn("no viewport recorded; gaze pixel coordinates cannot be interpreted")
-    if row["eyetrack_viewport_changed"]:
+    if get("eyetrack_viewport_changed"):
         g.warn("the window was resized during the task; samples before and after "
                "the resize are scaled to different viewports")
 
     rmse = row["eyetrack_calibration_rmse"]
-    fraction = row["eyetrack_calibration_rmse_fraction"]
+    fraction = get("eyetrack_calibration_rmse_fraction")
     if rmse is None:
         print("  calibration RMSE           : (not measured — calibration skipped)")
         g.fail("calibration was skipped; this participant's gaze is uncalibrated")
@@ -127,6 +144,27 @@ def grade_player(row: sqlite3.Row) -> Grade:
     fabricated = [s for s in samples if s.get("gaze_state") != "open" and s.get("x") is not None]
     if fabricated:
         g.fail(f"{len(fabricated)} no-face samples carry coordinates (should be empty)")
+
+    # Gaze is clipped to the screen, so an estimate on the boundary is censored.
+    # Samples recorded before the flag existed are re-derived from norm_x/norm_y,
+    # so this number never silently under-reports on older data.
+    def is_clipped(s):
+        if "clipped" in s:
+            return bool(s["clipped"])
+        nx, ny = s.get("norm_x"), s.get("norm_y")
+        if nx is None or ny is None:
+            return False
+        return max(abs(nx), abs(ny)) >= 0.5 - 1e-9
+
+    clipped = [s for s in samples if is_clipped(s)]
+    if seen:
+        clipped_frac = len(clipped) / len(seen)
+        print(f"  clipped at screen edge     : {len(clipped)}/{len(seen)} ({clipped_frac:.1%})")
+        if clipped_frac > 0.10:
+            g.warn(
+                f"{clipped_frac:.0%} of gaze estimates were saturated at a screen edge; "
+                "those are censored, not measured"
+            )
 
     # One sample per unique camera frame.
     frame_times = [s.get("frame_time") for s in samples]

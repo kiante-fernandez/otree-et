@@ -76,6 +76,12 @@ class Player(BasePlayer):
 
     selected_row = models.IntegerField()
     lottery_outcome = models.IntegerField()  # see C.NO_CHOICE / C.OUTCOME_*
+    # Number of times the participant changed option as they moved down the list.
+    # A coherent respondent switches exactly once. See summarize_switching().
+    num_switches = models.IntegerField(initial=0)
+    # The row on which they first take the lottery. Empty unless num_switches
+    # is 1 and they began on the safe option.
+    switch_row = models.IntegerField(blank=True)
 
     eyetrack_consent = models.BooleanField(initial=False)
     # Error in pixels on the held-out validation points. Empty means the
@@ -118,6 +124,33 @@ def get_safe_amount(row):
     """
     span = C.SAFE_MAX - C.SAFE_MIN
     return C.SAFE_MIN + span * (row - 1) / (C.NUM_CHOICES - 1)
+
+
+def summarize_switching(player: Player):
+    """
+    Record how consistent the participant's price list is.
+
+    A coherent respondent takes the safe option on low rows and switches once to
+    the lottery as the safe amount rises. Someone who switches back and forth has
+    not given a usable risk preference, and the standard remedy is to exclude
+    them — so the data has to say who they are. `switch_row` is only meaningful
+    when `num_switches` is 1.
+    """
+    choices = [getattr(player, f'choice_{row}') for row in range(1, C.NUM_CHOICES + 1)]
+
+    transitions = [
+        row for row in range(1, C.NUM_CHOICES)
+        if choices[row - 1] is not None
+        and choices[row] is not None
+        and choices[row - 1] != choices[row]
+    ]
+    player.num_switches = len(transitions)
+
+    if len(transitions) == 1 and choices[0] == C.OPTION_A:
+        # The row on which they first take the lottery.
+        player.switch_row = transitions[0] + 1
+    else:
+        player.switch_row = None
 
 
 def calculate_payoff(player: Player):
@@ -248,6 +281,7 @@ class Decision(Page):
 
     @staticmethod
     def before_next_page(player: Player, timeout_happened):
+        summarize_switching(player)
         calculate_payoff(player)
 
 
@@ -274,6 +308,9 @@ def custom_export(players):
       norm_x, norm_y  the library's normalized point of gaze, in [-0.5, 0.5]
       gaze_state      'open' when a face was tracked; anything else means the
                       coordinates are empty rather than a real fixation
+      clipped         1 when the estimate was saturated at a screen edge. The
+                      tracker clips gaze to the screen, so such a sample is
+                      censored: the participant was looking further out.
       t_perf          milliseconds since page load (monotonic; use this)
       frame_time      the camera's clock, in seconds since the stream started
     """
@@ -281,7 +318,7 @@ def custom_export(players):
         'session_code', 'participant_code', 'page',
         'eyetrack_init_status', 'sample_index',
         'x', 'y', 'norm_x', 'norm_y',
-        'gaze_state', 't_perf', 'frame_time',
+        'gaze_state', 'clipped', 't_perf', 'frame_time',
     ]
 
     for player in players:
@@ -310,5 +347,6 @@ def custom_export(players):
                 s.get('x'), s.get('y'),
                 s.get('norm_x'), s.get('norm_y'),
                 s.get('gaze_state'),
+                1 if s.get('clipped') else 0,
                 s.get('t_perf'), s.get('frame_time'),
             ]

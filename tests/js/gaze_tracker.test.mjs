@@ -59,6 +59,31 @@ test('an open-eyed frame is converted to screen pixels', () => {
   assert.equal(s.gaze_state, 'open');
 });
 
+test('a gaze estimate saturated at the screen edge is flagged as clipped', () => {
+  // WebEyeTrack clips normPog to [-0.5, 0.5]. A sample at the boundary is
+  // censored -- the participant was looking further out -- not a fixation
+  // on the edge of the screen.
+  const { tracker } = newTracker();
+  tracker.isInitialized = true;
+  tracker.startTracking();
+
+  tracker.handleGazeResult(gazeResult({ normX: -0.5, normY: 0.1, timestamp: 1 }));
+  tracker.handleGazeResult(gazeResult({ normX: 0.5, normY: 0.1, timestamp: 2 }));
+  tracker.handleGazeResult(gazeResult({ normX: 0.2, normY: -0.5, timestamp: 3 }));
+  tracker.handleGazeResult(gazeResult({ normX: 0.2, normY: 0.1, timestamp: 4 }));
+
+  assert.deepEqual(tracker.allSamples.map(s => s.clipped), [true, true, true, false]);
+  assert.equal(tracker.clippedSamples, 3);
+});
+
+test('a no-face sample is never marked clipped', () => {
+  const { tracker } = newTracker();
+  tracker.isInitialized = true;
+  tracker.startTracking();
+  tracker.handleGazeResult(gazeResult({ normX: 0, normY: 0, gazeState: 'closed', timestamp: 1 }));
+  assert.equal(tracker.allSamples[0].clipped, false);
+});
+
 test('repeated camera frames are recorded once', () => {
   const { tracker } = newTracker();
   tracker.isInitialized = true;

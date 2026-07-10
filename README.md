@@ -171,6 +171,8 @@ apply to every page that follows.
 
 | Field | Meaning |
 |-------|---------|
+| `num_switches` | How many times the participant changed option down the list. A coherent respondent switches exactly **once**. |
+| `switch_row` | The row on which they first take the lottery. Empty unless `num_switches` is 1 and they started on the safe option — multiple switchers have not revealed a risk preference and are normally excluded. |
 | `eyetrack_consent` | Whether camera permission was granted |
 | `eyetrack_calibration_rmse` | Error in pixels on the four held-out validation points (lower is better). **Empty means calibration was skipped** — the gaze below comes from an uncalibrated model. |
 | `eyetrack_calibration_rmse_fraction` | The same error as a fraction of the screen diagonal. **Compare participants on this, not on pixels.** |
@@ -196,7 +198,16 @@ For a participant whose gaze you intend to analyse, you want
 
 Expect around 20–30 samples per second. Vertical gaze is markedly less accurate
 than horizontal — a webcam sees far less vertical eye movement — so most of the
-error is usually in `y`.
+error is usually in `y`. A measured session on a 1512 × 781 window scored 79 px
+(4.7% of the diagonal) with horizontal spread of 389 px against only 125 px
+vertically.
+
+**This matters for regions of interest.** With a held-out error of that size,
+gaze reliably distinguishes the *columns* of the price list (Option A vs Option
+B) but not necessarily individual *rows*, which are only a few tens of pixels
+tall. Design your regions of interest around what the tracker can actually
+resolve, and check `eyetrack_calibration_rmse_fraction` before assuming
+row-level attribution.
 
 ### Per gaze sample
 
@@ -207,7 +218,7 @@ The Custom export gives one row per sample, joined with the participant's
 {
   "x": 756.5, "y": 412.3,
   "norm_x": 0.10, "norm_y": -0.05,
-  "gaze_state": "open",
+  "gaze_state": "open", "clipped": false,
   "t_perf": 12345.67, "frame_time": 4.85
 }
 ```
@@ -217,6 +228,7 @@ The Custom export gives one row per sample, joined with the participant's
 | `x`, `y` | Screen pixels. **Empty when no face was detected** — never a guessed location. |
 | `norm_x`, `norm_y` | The library's normalized point of gaze, in `[-0.5, 0.5]`. Empty when no face was detected. |
 | `gaze_state` | `open` when a face was tracked. Any other value means the coordinates are empty rather than a real fixation. |
+| `clipped` | `1` when the estimate was saturated at a screen edge. The tracker clips gaze to the screen, so such a sample is **censored, not measured**: the participant was looking further out. |
 | `t_perf` | Milliseconds since page load. Monotonic — **use this for timing**. |
 | `frame_time` | The camera's own clock, in *seconds* since the video stream started. A different clock from `t_perf`. |
 
@@ -224,6 +236,10 @@ One sample per unique camera frame. The library reports gaze on every animation
 frame (~60 Hz) while the camera runs at ~30 fps, so roughly a third of its
 reports re-process the previous frame; those are collapsed rather than stored
 twice.
+
+Samples are **not independent**: the library runs a Kalman filter over its
+estimates, so consecutive samples are smoothed and autocorrelated. Treat them as
+a filtered time series, not as repeated independent measurements.
 
 ## Testing
 

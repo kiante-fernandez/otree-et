@@ -47,7 +47,7 @@ HEADER = [
     'session_code', 'participant_code', 'page',
     'eyetrack_init_status', 'sample_index',
     'x', 'y', 'norm_x', 'norm_y',
-    'gaze_state', 't_perf', 'frame_time',
+    'gaze_state', 'clipped', 't_perf', 'frame_time',
 ]
 
 
@@ -85,11 +85,28 @@ def test_no_face_sample_exports_empty_coordinates_not_screen_centre():
     than substituting a number.
     """
     samples = [{'x': None, 'y': None, 'norm_x': None, 'norm_y': None,
-                'gaze_state': 'closed', 't_perf': 1.5, 'frame_time': 4.85}]
+                'gaze_state': 'closed', 'clipped': False,
+                't_perf': 1.5, 'frame_time': 4.85}]
     rows = list(custom_export([make_player(samples)]))
     row = rows[1]
     assert row[5] is None and row[6] is None, f"x/y should be empty, got {row[5]!r},{row[6]!r}"
     assert row[9] == 'closed'
+    assert row[10] == 0  # clipped
+
+
+def test_clipped_is_exported_as_zero_or_one():
+    """
+    The tracker saturates gaze at the screen edge, so a clipped sample is
+    censored rather than measured. Export it as a numeric flag so it loads
+    cleanly into pandas or R.
+    """
+    samples = [
+        {'x': 0, 'y': 10, 'gaze_state': 'open', 'clipped': True},
+        {'x': 5, 'y': 10, 'gaze_state': 'open', 'clipped': False},
+        {'x': 5, 'y': 10, 'gaze_state': 'open'},  # older data, no flag
+    ]
+    rows = list(custom_export([make_player(samples)]))
+    assert [r[10] for r in rows[1:]] == [1, 0, 0]
 
 
 def test_skips_player_with_empty_data():

@@ -84,6 +84,7 @@ class SimpleGazeTracker {
 
     this.droppedNoFace = 0;
     this.droppedDuplicate = 0;
+    this.clippedSamples = 0;
 
     // Sample coordinates are screen pixels, so they mean nothing without the
     // size of the screen they were measured on. Record it. A resize mid-task
@@ -228,12 +229,23 @@ class SimpleGazeTracker {
     const normX = seen ? gazeResult.normPog[0] : null;
     const normY = seen ? gazeResult.normPog[1] : null;
 
+    // WebEyeTrack clips its output to [-0.5, 0.5], so a sample sitting exactly
+    // on a screen edge is censored, not measured: the participant was looking
+    // somewhere further out. Recording it as a fixation at the edge would be a
+    // fabrication, but dropping it would hide that they looked away. Flag it.
+    const clipped = seen && (
+      Math.abs(normX) >= SimpleGazeTracker.CLIP_LIMIT ||
+      Math.abs(normY) >= SimpleGazeTracker.CLIP_LIMIT
+    );
+    if (clipped) this.clippedSamples++;
+
     this.allSamples.push({
       x: seen ? (normX + 0.5) * window.innerWidth : null,
       y: seen ? (normY + 0.5) * window.innerHeight : null,
       norm_x: normX,
       norm_y: normY,
       gaze_state: gazeResult.gazeState,
+      clipped: clipped,
       t_perf: performance.now(),
       frame_time: gazeResult.timestamp,
     });
@@ -379,5 +391,9 @@ class SimpleGazeTracker {
     this.isTracking = false;
   }
 }
+
+// WebEyeTrack clips normPog to [-0.5, 0.5] after its Kalman filter. Anything at
+// or beyond this magnitude was saturated at the screen boundary.
+SimpleGazeTracker.CLIP_LIMIT = 0.5 - 1e-9;
 
 window.SimpleGazeTracker = SimpleGazeTracker;

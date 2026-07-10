@@ -22,7 +22,7 @@ os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'settings')
 try:
     from otree.api import cu
 
-    from mpl_risk import C, calculate_payoff, get_safe_amount
+    from mpl_risk import C, calculate_payoff, get_safe_amount, summarize_switching
 except Exception as exc:  # pragma: no cover
     print(f"SKIP: could not import mpl_risk ({exc!r})")
     sys.exit(0)
@@ -30,10 +30,16 @@ except Exception as exc:  # pragma: no cover
 
 def make_player(**choices):
     """Stub Player carrying only what calculate_payoff reads and writes."""
-    player = SimpleNamespace(payoff=None, selected_row=None, lottery_outcome=None)
+    player = SimpleNamespace(payoff=None, selected_row=None, lottery_outcome=None,
+                             num_switches=None, switch_row=None)
     for row in range(1, C.NUM_CHOICES + 1):
         setattr(player, f'choice_{row}', choices.get(f'choice_{row}'))
     return player
+
+
+def player_with(pattern):
+    """`pattern` is a list of 10 choice values (1 = safe, 2 = lottery)."""
+    return make_player(**{f'choice_{i}': v for i, v in enumerate(pattern, 1)})
 
 
 # --- the price ladder -------------------------------------------------------
@@ -104,6 +110,59 @@ def test_unanswered_choice_none_is_also_handled():
     calculate_payoff(player)
     assert player.lottery_outcome == C.NO_CHOICE
     assert player.payoff == cu(0)
+
+
+# --- price-list consistency -------------------------------------------------
+
+A, B = 1, 2
+
+
+def test_single_switch_records_the_row_where_the_lottery_is_first_taken():
+    player = player_with([A, A, A, B, B, B, B, B, B, B])
+    summarize_switching(player)
+    assert player.num_switches == 1
+    assert player.switch_row == 4
+
+
+def test_switching_on_the_last_row_is_still_a_single_switch():
+    player = player_with([A] * 9 + [B])
+    summarize_switching(player)
+    assert player.num_switches == 1
+    assert player.switch_row == 10
+
+
+def test_multiple_switching_is_recorded_and_has_no_switch_row():
+    """
+    A real session produced [1,1,2,1,1,1,1,1,2,2]: three transitions. Such a
+    participant has not revealed a risk preference and is normally excluded.
+    """
+    player = player_with([A, A, B, A, A, A, A, A, B, B])
+    summarize_switching(player)
+    assert player.num_switches == 3
+    assert player.switch_row is None
+
+
+def test_never_switching_has_no_switch_row():
+    for pattern in ([A] * 10, [B] * 10):
+        player = player_with(pattern)
+        summarize_switching(player)
+        assert player.num_switches == 0
+        assert player.switch_row is None
+
+
+def test_starting_on_the_lottery_and_switching_to_safe_has_no_switch_row():
+    """One transition, but the wrong way round: not an interpretable switch point."""
+    player = player_with([B, B, B, A, A, A, A, A, A, A])
+    summarize_switching(player)
+    assert player.num_switches == 1
+    assert player.switch_row is None
+
+
+def test_unanswered_rows_do_not_invent_transitions():
+    player = make_player()  # all None
+    summarize_switching(player)
+    assert player.num_switches == 0
+    assert player.switch_row is None
 
 
 def test_selected_row_is_always_in_range():
