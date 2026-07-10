@@ -45,10 +45,10 @@ Open <http://localhost:8000> in your browser, click **Demo**, then
 **mpl_risk**, and grant the camera permission when your browser asks.
 The demo takes one or two minutes to walk through.
 
-The gaze model ships with this repository and is served from `/static/`, so
-any standard oTree command works. The first calibration page load still
-fetches MediaPipe's face-detection model from a CDN, which can take a few
-seconds.
+Everything the tracker needs — the library, the gaze model, and MediaPipe's
+face detector — ships with this repository and is served from `/static/`. No
+participant's browser contacts a third-party host while a study is running, so
+any standard oTree command works and nothing depends on a CDN being up.
 
 ## What you will see
 
@@ -243,6 +243,15 @@ See [`tests/README.md`](tests/README.md) for what each test checks.
 **HTTPS is required.** Browsers only allow camera access on `localhost`
 or HTTPS. If you deploy behind a proxy, make sure it terminates TLS and
 forwards `X-Forwarded-Proto`.
+
+**No third-party requests.** The library, the gaze model, and MediaPipe's
+face detector are all served from `/static/`. A participant's browser never
+contacts an external host, which matters both for reliability and because
+contacting one would disclose participants' IP addresses to it. Verify with
+`python tests/test_offline.py`, which blocks every external host and asserts
+the tracker still works. Refresh the vendored assets with
+[`tools/fetch_mediapipe_assets.sh`](tools/fetch_mediapipe_assets.sh)
+(and `--check` to verify their checksums).
 
 **Heroku-style hosts.** The included [Procfile](Procfile) starts
 `uvicorn otree.asgi:app --host 0.0.0.0 --port $PORT`. Run

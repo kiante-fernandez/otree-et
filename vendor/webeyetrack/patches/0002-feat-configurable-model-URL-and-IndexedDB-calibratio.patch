@@ -1,7 +1,7 @@
 From 23706a049e9930115f91b9387bb680243307e51d Mon Sep 17 00:00:00 2001
 From: mpl_risk <dev@example.com>
 Date: Wed, 8 Jul 2026 22:17:02 -1000
-Subject: [PATCH 2/3] feat: configurable model URL and IndexedDB calibration
+Subject: [PATCH 2/4] feat: configurable model URL and IndexedDB calibration
  persistence
 
 Two changes, both backwards compatible.

@@ -36,6 +36,13 @@ class SimpleGazeTracker {
     // Upstream defaults to `${origin}/web/model.json`, which oTree does not serve.
     this.modelUrl = config.modelUrl || '/static/web/model.json';
 
+    // MediaPipe's runtime and face model. Upstream fetches both from third-party
+    // CDNs in the participant's browser at run time; we serve our own copies so
+    // that a study never depends on those hosts being up, and no participant's
+    // IP address is disclosed to them. See tools/fetch_mediapipe_assets.sh.
+    this.wasmPath = config.wasmPath || '/static/mediapipe/wasm';
+    this.faceModelUrl = config.faceModelUrl || '/static/mediapipe/face_landmarker.task';
+
     // When set, a model personalised on an earlier page is restored from
     // IndexedDB. Model adaptation lives in the Web Worker and dies with it, so
     // without this a calibration cannot outlive the page it was performed on.
@@ -106,6 +113,8 @@ class SimpleGazeTracker {
       this.webcamClient = new WebcamClient(this.videoElementId);
       this.proxy = new WebEyeTrackProxy(this.webcamClient, {
         modelUrl: this.modelUrl,
+        wasmPath: this.wasmPath,
+        faceModelUrl: this.faceModelUrl,
         calibrationKey: this.calibrationKey || undefined,
         adaptOnClick: this.adaptOnClick,
         maxPoints: this.maxPoints,
