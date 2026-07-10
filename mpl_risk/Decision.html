@@ -3,19 +3,13 @@
 
 {{ block styles }}
 <style>
-/* Page-specific styles for the webcam preview. Shared #gaze-dot, #tracking-status,
-   .status-active/.status-inactive live in _static/styles.css. */
+/* The webcam preview's box lives in _static/styles.css, alongside #gaze-dot and
+   #tracking-status. Only its size and hover behaviour are page-specific: it is
+   dimmed here so it does not distract from the task. */
 #webcam-video {
-    position: fixed;
-    bottom: 10px;
-    right: 10px;
     width: 120px;
     height: 90px;
-    border: 2px solid #333;
-    border-radius: 4px;
-    z-index: 100;
     opacity: 0.5;
-    background: #000;
 }
 #webcam-video:hover { opacity: 1; }
 </style>

@@ -52,30 +52,42 @@ class Group(BaseGroup):
     pass
 
 
+def make_choice_field(row):
+    """One row of the price list. oTree needs each field declared on the class,
+    but the options only have to be written once."""
+    return models.IntegerField(
+        choices=[[C.OPTION_A, 'Option A'], [C.OPTION_B, 'Option B']],
+        label=f'Row {row}',
+        widget=widgets.RadioSelectHorizontal,
+    )
+
+
 class Player(BasePlayer):
-    choice_1 = models.IntegerField(choices=[[1, 'Option A'], [2, 'Option B']], label='Row 1', widget=widgets.RadioSelectHorizontal)
-    choice_2 = models.IntegerField(choices=[[1, 'Option A'], [2, 'Option B']], label='Row 2', widget=widgets.RadioSelectHorizontal)
-    choice_3 = models.IntegerField(choices=[[1, 'Option A'], [2, 'Option B']], label='Row 3', widget=widgets.RadioSelectHorizontal)
-    choice_4 = models.IntegerField(choices=[[1, 'Option A'], [2, 'Option B']], label='Row 4', widget=widgets.RadioSelectHorizontal)
-    choice_5 = models.IntegerField(choices=[[1, 'Option A'], [2, 'Option B']], label='Row 5', widget=widgets.RadioSelectHorizontal)
-    choice_6 = models.IntegerField(choices=[[1, 'Option A'], [2, 'Option B']], label='Row 6', widget=widgets.RadioSelectHorizontal)
-    choice_7 = models.IntegerField(choices=[[1, 'Option A'], [2, 'Option B']], label='Row 7', widget=widgets.RadioSelectHorizontal)
-    choice_8 = models.IntegerField(choices=[[1, 'Option A'], [2, 'Option B']], label='Row 8', widget=widgets.RadioSelectHorizontal)
-    choice_9 = models.IntegerField(choices=[[1, 'Option A'], [2, 'Option B']], label='Row 9', widget=widgets.RadioSelectHorizontal)
-    choice_10 = models.IntegerField(choices=[[1, 'Option A'], [2, 'Option B']], label='Row 10', widget=widgets.RadioSelectHorizontal)
+    choice_1 = make_choice_field(1)
+    choice_2 = make_choice_field(2)
+    choice_3 = make_choice_field(3)
+    choice_4 = make_choice_field(4)
+    choice_5 = make_choice_field(5)
+    choice_6 = make_choice_field(6)
+    choice_7 = make_choice_field(7)
+    choice_8 = make_choice_field(8)
+    choice_9 = make_choice_field(9)
+    choice_10 = make_choice_field(10)
+
     selected_row = models.IntegerField()
-    lottery_outcome = models.IntegerField()
-    final_payoff = models.CurrencyField()
+    lottery_outcome = models.IntegerField()  # see C.NO_CHOICE / C.OUTCOME_*
 
     eyetrack_consent = models.BooleanField(initial=False)
+    # Error in pixels on the held-out validation points. Empty means the
+    # participant skipped calibration: their gaze is from an uncalibrated model.
     eyetrack_calibration_rmse = models.FloatField(blank=True)
     eyetrack_sample_count = models.IntegerField(initial=0)
-    eyetrack_gaze_data = models.LongStringField(blank=True)  # JSON array of {x, y, t, ...}
-    # Outcome of WebEyeTrack initialization. One of:
-    #   ok              — model loaded, real gaze samples
-    #   no_consent      — participant did not grant camera access
-    #   init_failed     — model failed to load; samples are mocked
-    #   unknown         — page never reported a status (e.g. crash before init)
+    eyetrack_gaze_data = models.LongStringField(blank=True)  # JSON array of samples
+    # Outcome of eye-tracker initialization. One of:
+    #   ok           — the gaze model loaded and samples were collected
+    #   no_consent   — participant did not grant camera access
+    #   init_failed  — the tracker could not start; no samples were recorded
+    #   unknown      — the page never reported a status (e.g. crash before init)
     eyetrack_init_status = models.StringField(initial='unknown')
     # First uncaught JS error during the tracked page (empty if no crash).
     # A non-empty value means sample collection may have stopped early.
@@ -99,24 +111,22 @@ def calculate_payoff(player: Player):
     choice = getattr(player, f'choice_{player.selected_row}')
 
     if choice == C.OPTION_A:
-        player.final_payoff = get_safe_amount(player.selected_row)
+        player.payoff = get_safe_amount(player.selected_row)
         player.lottery_outcome = C.OUTCOME_SAFE
     elif choice == C.OPTION_B:
         if random.random() < C.LOTTERY_PROB:
-            player.final_payoff = C.LOTTERY_HIGH
+            player.payoff = C.LOTTERY_HIGH
             player.lottery_outcome = C.OUTCOME_LOTTERY_HIGH
         else:
-            player.final_payoff = C.LOTTERY_LOW
+            player.payoff = C.LOTTERY_LOW
             player.lottery_outcome = C.OUTCOME_LOTTERY_LOW
     else:
         # The drawn row holds no valid choice. oTree's admin "Advance
         # participants" auto-submits a missing IntegerField as 0, which an
         # `if choice == 1 ... else` would resolve as the lottery — paying out
         # a gamble the participant never accepted. Record it instead.
-        player.final_payoff = cu(0)
+        player.payoff = cu(0)
         player.lottery_outcome = C.NO_CHOICE
-
-    player.payoff = player.final_payoff
 
 
 def get_calibration_points():
@@ -190,9 +200,7 @@ class Calibration(Page):
 
 class Decision(Page):
     form_model = 'player'
-    form_fields = [
-        'choice_1', 'choice_2', 'choice_3', 'choice_4', 'choice_5',
-        'choice_6', 'choice_7', 'choice_8', 'choice_9', 'choice_10',
+    form_fields = [f'choice_{row}' for row in range(1, C.NUM_CHOICES + 1)] + [
         'eyetrack_sample_count', 'eyetrack_gaze_data',
         'eyetrack_init_status', 'eyetrack_runtime_error',
     ]
@@ -228,7 +236,6 @@ class Decision(Page):
 
 
 class Results(Page):
-    form_model = 'player'
 
     @staticmethod
     def vars_for_template(player: Player):

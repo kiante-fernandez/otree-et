@@ -30,8 +30,7 @@ except Exception as exc:  # pragma: no cover
 
 def make_player(**choices):
     """Stub Player carrying only what calculate_payoff reads and writes."""
-    player = SimpleNamespace(payoff=None, selected_row=None,
-                             lottery_outcome=None, final_payoff=None)
+    player = SimpleNamespace(payoff=None, selected_row=None, lottery_outcome=None)
     for row in range(1, C.NUM_CHOICES + 1):
         setattr(player, f'choice_{row}', choices.get(f'choice_{row}'))
     return player
@@ -73,16 +72,15 @@ def test_risk_neutral_switch_point_is_interior():
 def test_choosing_option_a_pays_that_rows_safe_amount():
     player = make_player(**{f'choice_{r}': 1 for r in range(1, 11)})
     calculate_payoff(player)
-    assert player.lottery_outcome == 0
-    assert player.final_payoff == get_safe_amount(player.selected_row)
-    assert player.payoff == player.final_payoff
+    assert player.lottery_outcome == C.OUTCOME_SAFE
+    assert player.payoff == get_safe_amount(player.selected_row)
 
 
 def test_choosing_option_b_pays_a_lottery_prize():
     player = make_player(**{f'choice_{r}': 2 for r in range(1, 11)})
     calculate_payoff(player)
     assert player.lottery_outcome in (1, 2)
-    assert player.final_payoff in (C.LOTTERY_HIGH, C.LOTTERY_LOW)
+    assert player.payoff in (C.LOTTERY_HIGH, C.LOTTERY_LOW)
 
 
 def test_unanswered_choice_is_not_silently_paid_the_lottery():
@@ -98,14 +96,14 @@ def test_unanswered_choice_is_not_silently_paid_the_lottery():
     assert player.lottery_outcome == C.NO_CHOICE, (
         f"unanswered row was resolved as lottery_outcome={player.lottery_outcome}"
     )
-    assert player.final_payoff == cu(0), f"unanswered row paid {player.final_payoff}"
+    assert player.payoff == cu(0), f"unanswered row paid {player.payoff}"
 
 
 def test_unanswered_choice_none_is_also_handled():
     player = make_player()  # every choice_N is None
     calculate_payoff(player)
     assert player.lottery_outcome == C.NO_CHOICE
-    assert player.final_payoff == cu(0)
+    assert player.payoff == cu(0)
 
 
 def test_selected_row_is_always_in_range():

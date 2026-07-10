@@ -123,16 +123,11 @@
     to { transform: rotate(360deg); }
 }
 
+/* Box lives in _static/styles.css. Larger here so the participant can check
+   their framing while calibrating. */
 #webcam-video {
-    position: fixed;
-    bottom: 10px;
-    right: 10px;
     width: 160px;
     height: 120px;
-    border: 2px solid #333;
-    border-radius: 4px;
-    z-index: 100;
-    background: #000;
 }
 </style>
 {{ endblock }}
