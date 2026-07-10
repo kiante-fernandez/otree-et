@@ -74,7 +74,12 @@ async function handlePointClick(event) {
   // skipped dot is never shown.
   if (busy) return;
   const dots = docQuerySelectorAllStrict('.calibration-point');
-  if (event.currentTarget !== dots[currentPointIndex]) return;
+
+  // Capture the element now, synchronously. `event.currentTarget` is only set
+  // while the event is being dispatched; the first `await` below returns
+  // control to the browser, which resets it to null.
+  const dot = event.currentTarget;
+  if (dot !== dots[currentPointIndex]) return;
 
   busy = true;
   try {
@@ -108,7 +113,10 @@ async function handlePointClick(event) {
       validationErrors.push(gazeError(gaze, point, window.innerWidth, window.innerHeight));
     }
 
-    event.currentTarget.classList.add('clicked');
+    // Stop it pulsing immediately. Otherwise the recorded dot stays `active`
+    // for the whole inter-dot delay and a quick participant clicks it twice.
+    dot.classList.remove('active');
+    dot.classList.add('clicked');
     currentPointIndex++;
 
     if (currentPointIndex < ALL_POINTS.length) {
