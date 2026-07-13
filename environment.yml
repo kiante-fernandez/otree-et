@@ -7,4 +7,3 @@ dependencies:
   - pip:
     - otree>=6.0,<7.0
     - uvicorn[standard]>=0.20
-    - starlette>=0.27

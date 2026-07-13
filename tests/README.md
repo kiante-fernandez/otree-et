@@ -1,24 +1,71 @@
 # Tests
 
-Two layers, opt-in:
+Four layers. Everything except the browser tests runs in under a second:
 
-## 1. Unit test — `test_custom_export.py`
+```bash
+python -m pytest tests/          # Python units
+node --test tests/js/*.test.mjs  # JavaScript units, no browser
+```
 
-Pure Python, no browser, no oTree runtime needed. Verifies the
-`custom_export` long-format generator against synthetic samples.
+## 0. JavaScript unit tests — `tests/js/`
+
+`gaze_tracker.test.mjs` exercises `SimpleGazeTracker` against a stub DOM under
+plain `node --test`. No jsdom, no npm dependencies. It pins the properties that
+matter for data quality and that a browser test cannot cheaply check:
+
+- a frame with no face is recorded with empty coordinates, never as a fixation
+  at the centre of the screen
+- repeated camera frames are collapsed to one sample
+- the latest gaze reading is available before `startTracking()`, which is what
+  the calibration page depends on
+- a stale reading is not reused
+- a no-consent participant is saved as `no_consent`, not `unknown`
+- the server's record of consent beats a lost `sessionStorage` entry
+- `init()` reports failure rather than substituting fabricated samples
+
+`calibration_math.test.mjs` covers the calibration geometry and the RMSE.
+
+Seven of the ten `gaze_tracker` tests fail against the version of the tracker
+that shipped before them.
+
+---
+
+The three original layers:
+
+## 1. Unit test — `test_payoff.py`
+
+Pure Python. Verifies the MPL price ladder (row 1 is `SAFE_MIN`, the top row
+is exactly `SAFE_MAX`, the ladder is strictly increasing, and a risk-neutral
+participant's switch row falls strictly inside the ladder) and the payoff rule
+(Option A pays that row's safe amount, Option B resolves the lottery, and a row
+the participant never answered pays nothing rather than silently resolving the
+lottery).
+
+```bash
+python tests/test_payoff.py
+# or, with pytest installed:
+python -m pytest tests/test_payoff.py
+```
+
+## 2. Unit test — `test_custom_export.py`
+
+Pure Python. Verifies the `custom_export` long-format generator against
+synthetic samples, including malformed `eyetrack_gaze_data`. That field is
+written by the participant's browser, so anything that parses as JSON can
+reach the export; one malformed row must not abort the whole session's export.
 
 ```bash
 python tests/test_custom_export.py
-# or, with pytest installed:
+# or:
 python -m pytest tests/test_custom_export.py
 ```
 
-## 2. End-to-end smoke test — `smoke_e2e.py`
+## 3. End-to-end smoke test — `smoke_e2e.py`
 
 Headless Chromium walks the full Consent → Calibration → Decision →
 Results flow with a synthetic camera stream
 (Chromium's `--use-fake-device-for-media-stream`). Catches
-template/wiring/fetch-shim regressions a unit test can't.
+template and wiring regressions a unit test can't.
 
 One-time setup:
 
@@ -27,13 +74,14 @@ pip install playwright
 python -m playwright install chromium
 ```
 
-In one terminal, run the dev server through the ASGI wrapper (so the
-`/web/` model mount is in place):
+In one terminal:
 
 ```bash
-otree resetdb --noinput
-uvicorn asgi:application --port 8000
+otree devserver
 ```
+
+(Not `otree resetdb` first — `devserver` manages its own database, and rejects
+one that `resetdb` created.)
 
 In another:
 
@@ -44,10 +92,35 @@ python tests/smoke_e2e.py
 What it checks:
 
 - `eyetrack_consent` hidden input flips to `'1'` after the camera test.
-- Calibration loading overlay clears (WebEyeTrack model loaded from
-  `/web/model.json`, served by `asgi.py`).
-- All 9 calibration dots are clickable and the RMSE field is rendered.
+- Calibration loading overlay clears (the gaze model loaded from
+  `/static/web/model.json`).
+- With no face in frame, calibration refuses: the hint appears, the dot does
+  not advance, and no point is recorded.
+- After repeated failures the participant is offered a way past the page, and
+  taking it works. Nothing else on the calibration page can move them forward.
+- On the Decision page: `init_status == 'ok'`, samples were actually collected,
+  no-face samples carry empty coordinates, and there is exactly one sample per
+  camera frame.
 - Decision page contains no `€€` double-printed currency.
 - Results page renders a single Euro symbol per amount.
-- No unexpected JS console errors (TF Lite / MediaPipe INFO chatter is
-  filtered).
+- No unexpected JS console errors. MediaPipe's own INFO chatter is filtered;
+  `404` and `WebEyeTrack` deliberately are not, because those are what a broken
+  model mount emits.
+
+## 4. Calibration persistence — `test_calibration_persistence.py`
+
+Drives Consent → Calibration → Decision and asserts the personalised model is
+written to IndexedDB and restored on the next page, under a key derived from the
+participant. This is the property the integration rests on: gaze-model
+adaptation lives in a Web Worker that every oTree page load destroys.
+
+```bash
+otree devserver                              # in one terminal
+python tests/test_calibration_persistence.py # in another
+```
+
+**Known gap.** Chromium's synthetic camera shows a test pattern with no face,
+so the tracker returns `gaze_state: 'closed'` for every sample and `calibrate()`
+has nothing to adapt to. The browser suites therefore verify the data path, the
+refusal behaviour, and the persistence mechanism — but not calibration
+*accuracy*. That needs one session with a real webcam.

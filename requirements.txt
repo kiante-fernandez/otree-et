@@ -1,12 +1,12 @@
-# oTree 5+ with eye-tracking dependencies.
-# Install with: pip install -r requirements.txt
+# oTree 6.x. Install with: pip install -r requirements.txt
 #
-# Pinned major versions: oTree's templating syntax has changed across major
+# Pinned major version: oTree's templating syntax has changed across major
 # releases, and this project is verified against 6.x.
 otree>=6.0,<7.0
 
-# uvicorn + starlette host the minimal ASGI wrapper in asgi.py that mounts
-# the WebEyeTrack model files at /web/. See asgi.py for why that mount is
-# unavoidable on `otree devserver` alone.
+# uvicorn is what the Procfile runs in production. oTree already depends on it,
+# but pin it here so a deployment cannot resolve a version without websockets.
 uvicorn[standard]>=0.20
-starlette>=0.27
+
+# Only needed for the end-to-end browser test (tests/smoke_e2e.py):
+#   pip install playwright && python -m playwright install chromium

@@ -8,12 +8,14 @@
   Row <b>{{ player.selected_row }}</b> was randomly selected for payment.
 </p>
 
-{{ if selected_choice == 1 }}
+{{ if player.lottery_outcome == C.NO_CHOICE }}
+  <p>No choice was recorded for this row, so no payment is due for it.</p>
+{{ elif selected_choice == C.OPTION_A }}
   <p>You chose <b>Option A (Safe)</b> in this row.</p>
   <p>Your payment: <b>{{ safe_amount }}</b></p>
 {{ else }}
   <p>You chose <b>Option B (Lottery)</b> in this row.</p>
-  {{ if player.lottery_outcome == 1 }}
+  {{ if player.lottery_outcome == C.OUTCOME_LOTTERY_HIGH }}
     <p>The lottery result: <b>{{ C.LOTTERY_HIGH }}</b> (high outcome)</p>
   {{ else }}
     <p>The lottery result: <b>{{ C.LOTTERY_LOW }}</b> (low outcome)</p>
@@ -21,7 +23,7 @@
 {{ endif }}
 
 <p>
-  Your final payoff: <b>{{ player.final_payoff }}</b>
+  Your final payoff: <b>{{ player.payoff }}</b>
 </p>
 
 {{ next_button }}

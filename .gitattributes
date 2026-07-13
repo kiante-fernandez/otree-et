@@ -1,1 +1,3 @@
 _static/web/*.bin binary
+_static/mediapipe/**/*.wasm binary
+_static/mediapipe/*.task binary

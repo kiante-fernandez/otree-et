@@ -3,19 +3,13 @@
 
 {{ block styles }}
 <style>
-/* Page-specific styles for the webcam preview. Shared #gaze-dot, #tracking-status,
-   .status-active/.status-inactive live in _static/styles.css. */
+/* The webcam preview's box lives in _static/styles.css, alongside #gaze-dot and
+   #tracking-status. Only its size and hover behaviour are page-specific: it is
+   dimmed here so it does not distract from the task. */
 #webcam-video {
-    position: fixed;
-    bottom: 10px;
-    right: 10px;
     width: 120px;
     height: 90px;
-    border: 2px solid #333;
-    border-radius: 4px;
-    z-index: 100;
     opacity: 0.5;
-    background: #000;
 }
 #webcam-video:hover { opacity: 1; }
 </style>
@@ -42,6 +36,10 @@
 <input type="hidden" name="eyetrack_sample_count" id="eyetrack_sample_count" value="0">
 <input type="hidden" name="eyetrack_gaze_data" id="eyetrack_gaze_data" value="[]">
 <input type="hidden" name="eyetrack_init_status" id="eyetrack_init_status" value="unknown">
+<input type="hidden" name="eyetrack_calibration_restored" id="eyetrack_calibration_restored" value="0">
+<input type="hidden" name="eyetrack_viewport_width" id="eyetrack_viewport_width" value="0">
+<input type="hidden" name="eyetrack_viewport_height" id="eyetrack_viewport_height" value="0">
+<input type="hidden" name="eyetrack_viewport_changed" id="eyetrack_viewport_changed" value="0">
 <input type="hidden" name="eyetrack_runtime_error" id="eyetrack_runtime_error" value="">
 
 <table class="table">
@@ -69,13 +67,26 @@
 
 <script type="module">
 import { loadWebEyeTrack } from '{{ static "webeyetrack-loader.js" }}';
-// Pre-load WebEyeTrack (it may already be cached from Calibration page)
-loadWebEyeTrack().catch(err => console.warn('WebEyeTrack preload failed:', err));
+// Served from this project's own static files; the browser cache usually makes
+// this free after the Calibration page.
+loadWebEyeTrack('{{ static "webeyetrack/webeyetrack.js" }}')
+    .catch(err => console.warn('WebEyeTrack load failed:', err));
 </script>
 
 <script>{{ include_sibling 'gaze_tracker.js' }}</script>
 <script>
-const tracker = new SimpleGazeTracker({ videoElementId: 'webcam-video' });
+const tracker = new SimpleGazeTracker({
+    videoElementId: 'webcam-video',
+    // Restore the model the participant calibrated on the previous page. Model
+    // adaptation lives in a Web Worker that this page load recreated from
+    // scratch, so without this the gaze below comes from an uncalibrated model.
+    calibrationKey: js_vars.calibration_key,
+    // The ten choices are radio buttons. WebEyeTrack would treat every one of
+    // those clicks as "the participant was looking here" and retrain on it,
+    // dragging the model toward the choice column -- precisely the region an
+    // attention analysis wants to measure.
+    adaptOnClick: false,
+});
 
 // Capture the first uncaught error so it survives form submit. Non-empty
 // eyetrack_runtime_error in the data flags participants whose tracking may
@@ -117,6 +128,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         form.addEventListener('submit', onSubmit);
     }
 });
+
+// Release the camera and the worker rather than waiting for the browser to
+// reclaim them at some point after navigation.
+window.addEventListener('beforeunload', () => tracker.destroy());
 </script>
 
 {{ endblock }}

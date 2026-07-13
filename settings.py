@@ -16,10 +16,22 @@ ADMIN_USERNAME = 'admin'
 # Set OTREE_ADMIN_PASSWORD in your environment for any non-local deployment.
 ADMIN_PASSWORD = environ.get('OTREE_ADMIN_PASSWORD')
 
-# In production, set OTREE_SECRET_KEY in the environment. The fallback below
-# generates a random key for local development only — restarts will invalidate
-# any signed cookies, which is fine for `otree devserver`.
-SECRET_KEY = environ.get('OTREE_SECRET_KEY') or secrets.token_urlsafe(50)
+# Cookie-signing secret.
+#
+# A per-process fallback is fine for `otree devserver`, but in production it is
+# a trap: every uvicorn worker would generate a different key, so a cookie
+# signed by one worker is rejected by the next, logging participants out at
+# random mid-study. Refuse to start rather than fail that way.
+_secret_key = environ.get('OTREE_SECRET_KEY')
+if not _secret_key:
+    if environ.get('OTREE_PRODUCTION'):
+        raise RuntimeError(
+            'OTREE_SECRET_KEY must be set when OTREE_PRODUCTION is on. '
+            'Generate one with:  python -c "import secrets; print(secrets.token_urlsafe(50))"'
+        )
+    # Local development. Restarting invalidates signed cookies, which is fine.
+    _secret_key = secrets.token_urlsafe(50)
+SECRET_KEY = _secret_key
 
 # if an app is included in SESSION_CONFIGS, you don't need to list it here
 INSTALLED_APPS = ['otree']

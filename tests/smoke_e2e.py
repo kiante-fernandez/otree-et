@@ -14,8 +14,9 @@ Setup (one-time):
 
 Run:
 
-    # Start the dev server in another terminal:
-    otree resetdb --noinput && otree devserver 8000
+    # Start the dev server in another terminal (no resetdb -- devserver
+    # manages its own database and rejects one that resetdb created):
+    otree devserver
 
     # Then:
     python tests/smoke_e2e.py
@@ -24,12 +25,14 @@ Run:
 
 What this asserts:
   * Consent page accepts the fake camera and reveals the Next button.
-  * Calibration page loads WebEyeTrack from CDN through the /web -> /static/web
-    fetch shim (no console errors mentioning model.json 404s).
+  * Calibration page loads the vendored WebEyeTrack bundle and its gaze model
+    from /static/ (no console errors about the model failing to load).
   * Decision page shows the expected currency formatting (no `€€` doubling).
-  * Submitting Decision persists eyetrack_init_status and a non-empty
-    eyetrack_gaze_data into oTree's session — verified by reading admin export.
   * Results page renders a single euro symbol per amount.
+
+What this does NOT assert (see tests/README.md): Chromium's synthetic camera
+has no face in it, so every gaze sample comes back `gaze_state: 'closed'` at
+screen centre. Calibration accuracy and gaze quality cannot be checked here.
 """
 
 from __future__ import annotations
@@ -129,18 +132,49 @@ def run() -> int:
             print(f"  Recent console errors:\n    {console_dump}")
             raise
         page.click("#start-calibration-btn")
-        # Click each calibration dot in sequence as it activates. The dot has
-        # a CSS pulse animation (.calibration-point.active scales infinitely),
-        # which makes Playwright's "element stable" check fail — force=True
-        # bypasses it.
-        for i in range(9):
-            page.wait_for_selector(".calibration-point.active", timeout=10_000)
-            page.click(".calibration-point.active", force=True)
-            time.sleep(0.6)
-        page.wait_for_selector("#calibration-complete:not(.hidden)", timeout=10_000)
 
-        rmse_text = page.text_content("#calibration-rmse-value") or ""
-        assert_(rmse_text != "—", f"calibration RMSE was rendered (got {rmse_text!r})")
+        # Chromium's synthetic camera shows a test pattern with no face in it, so
+        # the tracker has no gaze reading to pair with the dot. Calibration MUST
+        # refuse rather than adapt the model to a fabricated centre-screen gaze.
+        # Clicking the dot repeatedly must not advance the sequence.
+        #
+        # The dot has a CSS pulse animation, so Playwright's "element stable"
+        # check never settles; force=True bypasses it.
+        page.wait_for_selector(".calibration-point.active", timeout=10_000)
+
+        # Which dot is active, by position in the sequence. Do not compare
+        # bounding boxes: the active dot has a CSS pulse animation, so its box
+        # legitimately changes between reads.
+        active_index = (
+            "Array.from(document.querySelectorAll('.calibration-point'))"
+            ".findIndex(d => d.classList.contains('active'))"
+        )
+        assert_(page.evaluate(active_index) == 0, "calibration starts on the first dot")
+
+        for _ in range(3):
+            page.click(".calibration-point.active", force=True)
+            time.sleep(0.4)
+
+        hint = (page.text_content("#calibration-live-hint") or "").strip()
+        assert_("Face not detected" in hint, f"no-face hint shown (got {hint!r})")
+
+        assert_(
+            page.evaluate(active_index) == 0,
+            "the dot must not advance when no face was seen",
+        )
+        assert_(
+            page.locator(".calibration-point.clicked").count() == 0,
+            "no point may be recorded without a gaze reading",
+        )
+
+        # With no face there is no way to finish, so the page must offer a way
+        # out. Nothing else on this page can move the participant forward.
+        page.wait_for_selector("#calibration-escape:not(.hidden)", timeout=10_000)
+        assert_(True, "escape route offered after repeated no-face attempts")
+        page.click("#skip-calibration-btn")
+
+        page.wait_for_selector("#proceed:not(.hidden)", timeout=10_000)
+        assert_(True, "participant can proceed after skipping calibration")
 
         page.click("button[type='submit'], .otree-btn-next, button:has-text('Next')")
         page.wait_for_load_state("networkidle")
@@ -153,7 +187,34 @@ def run() -> int:
         # Pick option A (radio value 1) for every row.
         for i in range(1, 11):
             page.click(f"input[name='choice_{i}'][value='1']")
-        page.wait_for_timeout(500)
+        page.wait_for_timeout(1500)
+
+        # The gaze data path must actually carry data. The model loaded (the
+        # console check above would have caught a 404), so samples must flow.
+        status = page.evaluate("tracker.initStatus")
+        assert_(status == "ok", f"tracker reports init_status 'ok' (got {status!r})")
+
+        n_samples = page.evaluate("tracker.allSamples.length")
+        assert_(n_samples > 0, f"gaze samples were collected (got {n_samples})")
+
+        # No face in the synthetic stream, so every sample must carry null
+        # coordinates rather than a fabricated fixation at the screen centre.
+        centre_fixations = page.evaluate(
+            "tracker.allSamples.filter(s => s.gaze_state !== 'open' && s.x !== null).length"
+        )
+        assert_(
+            centre_fixations == 0,
+            f"no-face samples must have null coordinates (got {centre_fixations} with coordinates)",
+        )
+
+        # Duplicate camera frames must be collapsed.
+        distinct_frames = page.evaluate(
+            "new Set(tracker.allSamples.map(s => s.frame_time)).size"
+        )
+        assert_(
+            distinct_frames == n_samples,
+            f"one sample per camera frame ({n_samples} samples, {distinct_frames} frames)",
+        )
 
         # Submit.
         page.click("button[type='submit'], .otree-btn-next, button:has-text('Next')")
@@ -166,16 +227,12 @@ def run() -> int:
         assert_(euro_count == 0, f"no '€€' double-print on Results (saw {euro_count})")
         assert_(re.search(r"€\d", body) is not None, "Results page contains a Euro amount")
 
-        # Console-error sanity. Filter out:
-        #  - WebEyeTrack init failure messages (mock fallback is acceptable)
-        #  - 404s on /web/model.json (means asgi.py mount is misconfigured —
-        #    we'd want to know, but it's noisy in tests)
-        #  - TF Lite INFO/WARN messages routed through console.error (these
-        #    come from MediaPipe's XNNPACK / GL initialization and are benign)
+        # Console-error sanity. Only MediaPipe's own INFO/WARN chatter, which it
+        # routes through console.error during XNNPACK / GL initialization, is
+        # benign. Do NOT whitelist "WebEyeTrack", "404", or "init_failed": those
+        # are exactly the strings a broken model mount emits, and filtering them
+        # is how this test used to pass while the tracker recorded nothing.
         benign_substrings = (
-            "WebEyeTrack",
-            "404",
-            "init_failed",
             "TensorFlow Lite",
             "XNNPACK",
             "gl_context",

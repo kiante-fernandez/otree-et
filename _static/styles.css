@@ -33,6 +33,18 @@
 #camera-status  { margin-top: 1rem; }
 #next-section   { margin-top: 2rem; }
 
+/* Webcam preview shown on every tracked page. Templates override only the size
+   and hover behaviour; keep the box itself in one place. */
+#webcam-video {
+    position: fixed;
+    bottom: 10px;
+    right: 10px;
+    border: 2px solid #333;
+    border-radius: 4px;
+    z-index: 100;
+    background: #000;
+}
+
 /* Generic visibility helper used across pages. */
 .hidden { display: none; }
 
