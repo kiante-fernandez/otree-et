@@ -17,10 +17,37 @@ keywords:
   - risk elicitation
 references:
   - type: software
-    title: WebEyeTrack
+    title: "WebEyeTrack (patched build used by this project)"
+    notes: >-
+      Built from RedForestAI/WebEyeTrack at commit
+      14719ad861467c98890058f7c41a94638ae1db2b, MIT licensed, with the five
+      patches in vendor/webeyetrack/patches/. Reproduce and verify with
+      tools/build_webeyetrack.sh. The patches expose the model's calibration
+      (adapt) so it can be applied and persisted across pages, make the model
+      and asset URLs configurable for self-hosting, and fix the library build.
     authors:
-      - name: RedForestAI
+      - family-names: Davalos
+        given-names: Eduardo
+      - family-names: Zhang
+        given-names: Yike
+      - family-names: Srivastava
+        given-names: Namrata
+      - family-names: Thatigotla
+        given-names: Yashvitha
+      - family-names: Salas
+        given-names: "Jorge A."
+      - family-names: McFadden
+        given-names: Sara
+      - family-names: Cho
+        given-names: Sun-Joo
+      - family-names: Goodwin
+        given-names: Amanda
+      - family-names: "TS"
+        given-names: Ashwin
+      - family-names: Biswas
+        given-names: Gautam
     repository-code: "https://github.com/RedForestAI/WebEyeTrack"
+    url: "https://arxiv.org/abs/2508.19544"
   - type: software
     title: oTree
     authors:

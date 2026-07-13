@@ -346,24 +346,53 @@ the server, not the video. Gaze samples are collected in the browser and
 posted to the server with the rest of the form data — no streaming server
 required.
 
-WebEyeTrack hardcodes its model URL as `/web/model.json`, which is not
-where oTree serves static files. Rather than run a custom server to mount
-that one path, this project vendors the library and rewrites that single
-string to `/static/web/model.json`. See
-[`_static/webeyetrack/VENDOR.md`](_static/webeyetrack/VENDOR.md) for the
-exact change and [`tools/build_webeyetrack.sh`](tools/build_webeyetrack.sh)
-to reproduce it. The upshot is that every oTree launch command works,
-including oTree Hub, and the library is no longer fetched from a CDN at
-run time.
+### The eye-tracking library is a patched build
+
+This project does not use WebEyeTrack off the shelf. It builds the library
+from a **pinned upstream commit plus a small patch series**, because the
+stock library cannot do what a research instrument needs:
+
+- Its personalisation step (`adapt()`) lives in a Web Worker and is not
+  exposed, so a calibration cannot be applied deliberately or carried from
+  the calibration page to the task page. The patches expose it and persist
+  the calibrated model across pages.
+- Its model and asset URLs are hardcoded to a path oTree does not serve and
+  to two third-party CDNs. The patches make them configurable, so everything
+  is served from `/static/` and no participant's browser contacts an external
+  host.
+- Its build does not compile on a clean checkout. One patch fixes that.
+
+The source is pinned in
+[`vendor/webeyetrack/UPSTREAM`](vendor/webeyetrack/UPSTREAM), the exact
+changes are in [`vendor/webeyetrack/patches/`](vendor/webeyetrack/patches/),
+and the whole thing is reproducible:
+
+```bash
+tools/build_webeyetrack.sh          # fetch pinned source, apply patches, build
+tools/build_webeyetrack.sh --check  # assert the committed bundle matches, byte for byte
+```
+
+An unpatched build of the pinned commit is byte-identical to the published
+`webeyetrack@0.0.2` on npm, so `--check` is a genuine supply-chain assertion:
+the bundle this repository serves is exactly that source plus those patches and
+nothing else. See
+[`_static/webeyetrack/VENDOR.md`](_static/webeyetrack/VENDOR.md) for details.
+
+The patches are written to be submittable upstream, but the project does not
+depend on them being accepted — the pin and the patch series stand on their own.
 
 ## Credits
 
 - Eye-tracking library:
-  [WebEyeTrack](https://github.com/RedForestAI/WebEyeTrack) by RedForestAI
+  [WebEyeTrack](https://github.com/RedForestAI/WebEyeTrack) by Davalos et al.
+  (Vanderbilt University, Trinity University, and St. Mary's University),
+  [arXiv:2508.19544](https://arxiv.org/abs/2508.19544)
 - Experiment framework: [oTree](https://www.otree.org/)
 
 If you use this in published research, please cite both this repository
-(see [`CITATION.cff`](CITATION.cff)) and the upstream WebEyeTrack project.
+(see [`CITATION.cff`](CITATION.cff)) and the upstream WebEyeTrack project. For
+reproducibility, report the pinned WebEyeTrack commit
+(`vendor/webeyetrack/UPSTREAM`) so others can rebuild the exact library you ran.
 
 ## License
 
