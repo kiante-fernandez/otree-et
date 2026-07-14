@@ -1,0 +1,116 @@
+<!--
+Drop-in eye tracking for a task page. Include at the bottom of the page's
+content block with oTree's include tag:
+
+    include 'eyetrack/tracked_page.html'
+
+(written here without the surrounding braces: the template engine reads HTML
+comments too, and the real tag in this position would include this file into
+itself forever).
+
+The page must also contain (see mpl_risk/Decision.html for the canonical
+example):
+
+    <div id="tracking-status" class="status-inactive">Eye tracking: initializing...</div>
+    <div id="gaze-dot"></div>
+    <video id="webcam-video" autoplay playsinline muted></video>
+
+and its Page class must append EYETRACK_FORM_FIELDS to form_fields and merge
+eyetrack_js_vars(player) into js_vars (both from eyetrack_shared).
+
+Mark elements whose location matters for analysis with
+data-eyetrack-roi="some-name"; their on-screen rectangles are recorded with
+the gaze data.
+-->
+
+<input type="hidden" name="eyetrack_sample_count" id="eyetrack_sample_count" value="0">
+<input type="hidden" name="eyetrack_gaze_data" id="eyetrack_gaze_data" value="[]">
+<input type="hidden" name="eyetrack_init_status" id="eyetrack_init_status" value="unknown">
+<input type="hidden" name="eyetrack_calibration_restored" id="eyetrack_calibration_restored" value="0">
+<input type="hidden" name="eyetrack_viewport_width" id="eyetrack_viewport_width" value="0">
+<input type="hidden" name="eyetrack_viewport_height" id="eyetrack_viewport_height" value="0">
+<input type="hidden" name="eyetrack_viewport_changed" id="eyetrack_viewport_changed" value="0">
+<input type="hidden" name="eyetrack_rois" id="eyetrack_rois" value="[]">
+<input type="hidden" name="eyetrack_runtime_error" id="eyetrack_runtime_error" value="">
+
+<script type="module">
+import { loadWebEyeTrack } from '{{ static "webeyetrack-loader.js" }}';
+// Served from this project's own static files; the browser cache usually makes
+// this free after the calibration page.
+loadWebEyeTrack('{{ static "webeyetrack/webeyetrack.js" }}')
+    .catch(err => console.warn('WebEyeTrack load failed:', err));
+</script>
+
+<script src="{{ static 'eyetrack/gaze_tracker.js' }}"></script>
+<script>
+const tracker = new SimpleGazeTracker({
+    videoElementId: 'webcam-video',
+    // Restore the model the participant calibrated in the eyetrack app. Model
+    // adaptation lives in a Web Worker that every page load recreates from
+    // scratch, so without this the gaze below comes from an uncalibrated model.
+    calibrationKey: js_vars.calibration_key,
+    // Task pages contain controls the participant clicks for reasons unrelated
+    // to where they are looking. WebEyeTrack would treat every such click as
+    // "the participant was looking here" and retrain on it, dragging the model
+    // toward whatever they clicked.
+    adaptOnClick: false,
+});
+
+// Capture the first uncaught error so it survives form submit. Non-empty
+// eyetrack_runtime_error in the data flags participants whose tracking may
+// have stopped mid-task.
+(function captureFirstError() {
+    const input = document.getElementById('eyetrack_runtime_error');
+    function record(message) {
+        if (input && !input.value) input.value = message.slice(0, 1000);
+    }
+    window.addEventListener('error', (e) => {
+        const where = e.filename ? ` (${e.filename}:${e.lineno})` : '';
+        record(`${e.message || 'unknown error'}${where}`);
+    });
+    window.addEventListener('unhandledrejection', (e) => {
+        const reason = e.reason && (e.reason.stack || e.reason.message || String(e.reason));
+        record(`unhandledrejection: ${reason || 'unknown'}`);
+    });
+})();
+
+document.addEventListener('DOMContentLoaded', async () => {
+    // Intercept submits BEFORE starting the tracker. Model load takes ~5s cold
+    // (up to ~35s when it is going to fail), the Next button is live the whole
+    // time, and an unintercepted submit posts the hidden inputs' defaults --
+    // recording the participant as 'unknown', which is documented to mean the
+    // page never ran at all.
+    //
+    // The listener has to drop itself before re-submitting, otherwise the
+    // second submit would be intercepted again (infinite loop). It is also
+    // registered through jQuery when present: oTree's timeout auto-submit
+    // calls jQuery's .submit(), which runs jQuery-bound handlers and then the
+    // native form.submit() METHOD -- which never fires a DOM submit event, so
+    // an addEventListener-only interceptor would be bypassed and the page's
+    // gaze data silently dropped at timeout.
+    const form = document.querySelector('form');
+    if (form) {
+        let submitting = false;
+        async function onSubmit(e) {
+            if (submitting) return;
+            e.preventDefault();
+            submitting = true;
+            await tracker.stopTracking();
+            form.removeEventListener('submit', onSubmit);
+            if (window.jQuery) window.jQuery(form).off('submit', onSubmit);
+            form.submit();
+        }
+        form.addEventListener('submit', onSubmit);
+        if (window.jQuery) window.jQuery(form).on('submit', onSubmit);
+    }
+
+    const initialized = await tracker.init();
+    if (initialized) {
+        tracker.startTracking();
+    }
+});
+
+// Release the camera and the worker rather than waiting for the browser to
+// reclaim them at some point after navigation.
+window.addEventListener('beforeunload', () => tracker.destroy());
+</script>

@@ -1,0 +1,30 @@
+{{ extends "global/Page.html" }}
+{{ block title }}Results{{ endblock }}
+
+{{ block content }}
+
+{{ if no_choice }}
+  <p>No decision was recorded for this game, so no payment is due for it.</p>
+{{ else }}
+  <p>
+    {{ if same_choice }}
+      Both of you chose to <b>{{ my_decision }}</b>.
+    {{ else }}
+      You chose to <b>{{ my_decision }}</b> and the other player chose to
+      <b>{{ opponent_decision }}</b>.
+    {{ endif }}
+  </p>
+
+  <p>
+    As a result, you earned <b>{{ player.payoff }}</b>.
+  </p>
+{{ endif }}
+
+<p class="text-muted">
+  The other player's decision in this demo was drawn at random. In a real
+  study it would come from another participant.
+</p>
+
+{{ next_button }}
+
+{{ endblock }}

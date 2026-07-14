@@ -25,11 +25,11 @@
 <input type="hidden" name="eyetrack_consent" id="eyetrack_consent" value="0">
 
 <div id="next-section" class="hidden">
-  <p class="text-success"><b>✓ Camera access granted</b></p>
+  <p class="text-success"><b>Camera access granted</b></p>
   {{ next_button }}
 </div>
 
-<script>{{ include_sibling 'consent.js' }}</script>
+<script src="{{ static 'eyetrack/consent.js' }}"></script>
 
 
 {{ endblock }}

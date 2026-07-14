@@ -25,8 +25,9 @@ matter for data quality and that a browser test cannot cheaply check:
 
 `calibration_math.test.mjs` covers the calibration geometry and the RMSE.
 
-Seven of the ten `gaze_tracker` tests fail against the version of the tracker
-that shipped before them.
+The suite grew alongside the tracker; the original core of it was written
+against a tracker that failed most of these tests, and each later test was
+checked to fail against the code before its fix.
 
 ---
 
@@ -59,6 +60,13 @@ python tests/test_custom_export.py
 # or:
 python -m pytest tests/test_custom_export.py
 ```
+
+## 2b. Unit test — `test_matrix_game.py`
+
+Pure Python. Verifies the matrix game is a genuine Prisoner's Dilemma
+(temptation > reward > punishment > sucker, and cooperation jointly efficient),
+that the payoff matrix covers all four outcomes, and that the drawn opponent
+decision is recorded so every payoff can be audited.
 
 ## 3. End-to-end smoke test — `smoke_e2e.py`
 
@@ -118,6 +126,21 @@ adaptation lives in a Web Worker that every oTree page load destroys.
 otree devserver                              # in one terminal
 python tests/test_calibration_persistence.py # in another
 ```
+
+## 5. Matrix game end-to-end — `test_matrix_e2e.py`
+
+Walks the `matrix_game` demo on the shared `eyetrack` app: a second task with
+no eye-tracking code of its own beyond the include and the field block. Asserts
+the payoff cells' `data-eyetrack-roi` rectangles are captured and posted, and
+that the Results payoff matches the recorded choices and the matrix.
+
+## 6. Task battery end-to-end — `test_battery_e2e.py`
+
+Walks the `task_battery` config: consent, one calibration save, then BOTH
+tasks. Asserts each task page reports `calibrationRestored === true` under the
+same participant key — the calibrate-once-track-everywhere claim, exercised
+across two real app boundaries — and that neither page silently fell back to
+the base model.
 
 **Known gap.** Chromium's synthetic camera shows a test pattern with no face,
 so the tracker returns `gaze_state: 'closed'` for every sample and `calibrate()`

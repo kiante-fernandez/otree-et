@@ -1,5 +1,5 @@
 /**
- * Minimal browser stubs so mpl_risk/gaze_tracker.js can be exercised under
+ * Minimal browser stubs so _static/eyetrack/gaze_tracker.js can be exercised under
  * plain `node --test`. No jsdom, no npm dependencies.
  *
  * Only what SimpleGazeTracker actually touches is stubbed: a few elements
@@ -17,7 +17,19 @@ function makeElement(id) {
   return { id, value: '', textContent: '', className: '', style: {} };
 }
 
-export function makeDom({ consent = 'true', jsVars = undefined, elementIds = [] } = {}) {
+/**
+ * A stand-in for an element carrying data-eyetrack-roi. `rect` is what
+ * getBoundingClientRect() returns; mutate it to simulate the layout moving.
+ */
+export function makeRoiElement(name, rect) {
+  return {
+    getAttribute: (attr) => (attr === 'data-eyetrack-roi' ? name : null),
+    getBoundingClientRect: () => ({ left: rect.x, top: rect.y, width: rect.w, height: rect.h }),
+    rect,
+  };
+}
+
+export function makeDom({ consent = 'true', jsVars = undefined, elementIds = [], roiElements = [] } = {}) {
   const elements = new Map();
   for (const id of elementIds) elements.set(id, makeElement(id));
 
@@ -32,6 +44,8 @@ export function makeDom({ consent = 'true', jsVars = undefined, elementIds = [] 
 
   const doc = {
     getElementById: (id) => elements.get(id) || null,
+    querySelectorAll: (selector) =>
+      selector === '[data-eyetrack-roi]' ? roiElements : [],
     addEventListener() {},
   };
 
@@ -58,7 +72,7 @@ export function makeDom({ consent = 'true', jsVars = undefined, elementIds = [] 
  * eval() is block-scoped, so we rewrite that assignment to reach our sandbox.
  */
 export function loadTracker(dom) {
-  const src = readFileSync(join(ROOT, 'mpl_risk', 'gaze_tracker.js'), 'utf8');
+  const src = readFileSync(join(ROOT, '_static', 'eyetrack', 'gaze_tracker.js'), 'utf8');
 
   globalThis.window = dom.win;
   globalThis.document = dom.doc;

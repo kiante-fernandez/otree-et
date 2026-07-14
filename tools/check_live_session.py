@@ -46,7 +46,10 @@ class Grade:
         self.warnings.append(msg)
 
 
-def grade_player(row: sqlite3.Row) -> Grade:
+def grade_player(row: sqlite3.Row, calib: dict | None) -> Grade:
+    """Grade one task app's row. `calib` is the eyetrack app's record for the
+    same participant (consent + calibration quality), or None if that app
+    never ran."""
     g = Grade()
 
     # Databases created before a field was added simply lack the column.
@@ -56,7 +59,10 @@ def grade_player(row: sqlite3.Row) -> Grade:
 
     status = row["eyetrack_init_status"]
     print(f"  init_status                : {status}")
-    if status != "ok":
+    if status == "init_pending":
+        g.fail("the page was submitted while the eye-tracking model was still "
+               "loading; no samples could have been collected")
+    elif status != "ok":
         g.fail(f"the tracker did not start (init_status={status!r})")
 
     if row["eyetrack_runtime_error"]:
@@ -89,8 +95,8 @@ def grade_player(row: sqlite3.Row) -> Grade:
         g.warn("the window was resized during the task; samples before and after "
                "the resize are scaled to different viewports")
 
-    rmse = row["eyetrack_calibration_rmse"]
-    fraction = get("eyetrack_calibration_rmse_fraction")
+    rmse = calib.get("rmse") if calib else None
+    fraction = calib.get("fraction") if calib else None
     if rmse is None:
         print("  calibration RMSE           : (not measured — calibration skipped)")
         g.fail("calibration was skipped; this participant's gaze is uncalibrated")
@@ -211,38 +217,93 @@ def main() -> int:
         return 2
     conn.row_factory = sqlite3.Row
 
-    order = "id" if args.all else "id desc"
-    limit = "" if args.all else "limit 1"
+    # Task apps are any *_player table that records gaze; the shared eyetrack
+    # app's own table holds consent and calibration quality instead.
+    def table_columns(name):
+        try:
+            return {r[1] for r in conn.execute(f"pragma table_info({name})")}
+        except sqlite3.Error:
+            return set()
+
     try:
-        rows = conn.execute(
-            f"select * from mpl_risk_player order by {order} {limit}"
-        ).fetchall()
+        all_tables = [
+            r[0] for r in conn.execute(
+                "select name from sqlite_master where type='table' and name like '%_player'"
+            )
+        ]
     except sqlite3.Error as exc:
-        print(f"cannot read mpl_risk_player: {exc}", file=sys.stderr)
-        print("Stop `otree devserver` first — it keeps the database in memory "
-              "and only writes it out on shutdown.", file=sys.stderr)
+        print(f"cannot read {args.db}: {exc}", file=sys.stderr)
         return 2
 
-    if not rows:
+    task_tables = [
+        name for name in all_tables
+        if name != 'eyetrack_player' and 'eyetrack_gaze_data' in table_columns(name)
+    ]
+    if not task_tables:
+        print("No task app tables with gaze data found. Run a demo session first.")
+        return 1
+
+    def calibration_for(participant_id):
+        if 'eyetrack_player' not in all_tables:
+            return None
+        row = conn.execute(
+            "select * from eyetrack_player where participant_id = ?", (participant_id,)
+        ).fetchone()
+        if row is None:
+            return None
+        cols = set(row.keys())
+        return dict(
+            consent=bool(row['eyetrack_consent']) if 'eyetrack_consent' in cols else None,
+            rmse=row['eyetrack_calibration_rmse'] if 'eyetrack_calibration_rmse' in cols else None,
+            fraction=row['eyetrack_calibration_rmse_fraction']
+            if 'eyetrack_calibration_rmse_fraction' in cols else None,
+        )
+
+    order = "id" if args.all else "id desc"
+    limit = "" if args.all else "limit 1"
+    participants = conn.execute(
+        f"select id, code from otree_participant order by {order} {limit}"
+    ).fetchall()
+    if not participants:
         print("No participants in the database yet. Run the demo first.")
         return 1
 
     total_problems = 0
-    for row in rows:
-        print(f"\nparticipant {row['id']}")
-        print("  " + "-" * 44)
-        g = grade_player(row)
-        total_problems += len(g.problems)
-        if g.problems:
-            print("\n  PROBLEMS")
-            for p in g.problems:
-                print(f"    - {p}")
-        if g.warnings:
-            print("\n  WARNINGS")
-            for w in g.warnings:
-                print(f"    - {w}")
-        if not g.problems and not g.warnings:
-            print("\n  This looks like a usable eye-tracking record.")
+    graded_any = False
+    for participant in participants:
+        calib = calibration_for(participant['id'])
+        header_printed = False
+        for table in task_tables:
+            row = conn.execute(
+                f"select * from {table} where participant_id = ?", (participant['id'],)
+            ).fetchone()
+            if row is None:
+                continue
+            if not header_printed:
+                print(f"\nparticipant {participant['code']}")
+                if calib is None:
+                    print("  (the eyetrack app never ran for this participant)")
+                header_printed = True
+            graded_any = True
+            app = table[: -len('_player')]
+            print(f"\n  [{app}]")
+            print("  " + "-" * 44)
+            g = grade_player(row, calib)
+            total_problems += len(g.problems)
+            if g.problems:
+                print("\n  PROBLEMS")
+                for p in g.problems:
+                    print(f"    - {p}")
+            if g.warnings:
+                print("\n  WARNINGS")
+                for w in g.warnings:
+                    print(f"    - {w}")
+            if not g.problems and not g.warnings:
+                print("\n  This looks like a usable eye-tracking record.")
+
+    if not graded_any:
+        print("No completed task rows for these participants yet.")
+        return 1
 
     print()
     if total_problems:
