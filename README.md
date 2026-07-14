@@ -299,10 +299,10 @@ never moved, duplicate frames, or coordinates on a no-face sample.
 sessions. Open the file in a browser (no server needed), drop in the
 `all_apps_wide-...csv` downloaded from oTree's Data page, and pick a
 participant and task. It plays the scan path in real time — scrub, change
-speed, watch the gaze land in the recorded regions of interest — and keeps a
-live dwell count per region. No-face stretches play as honest gaps, samples
-clipped at the screen edge draw as rings, and everything stays on your
-machine: the file is read locally by the page.
+speed, watch the gaze land in the recorded regions of interest. No-face
+stretches play as honest gaps, samples clipped at the screen edge draw as
+rings, and everything stays on your machine: the file is read locally by the
+page.
 
 `python tests/test_visualizer.py` drives it headlessly against a real export.
 
