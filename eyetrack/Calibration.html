@@ -231,8 +231,8 @@ loadWebEyeTrack('{{ static "webeyetrack/webeyetrack.js" }}')
     });
 </script>
 
-<script>{{ include_sibling 'gaze_tracker.js' }}</script>
-<script>{{ include_sibling 'calibration_math.js' }}</script>
-<script>{{ include_sibling 'calibration.js' }}</script>
+<script src="{{ static 'eyetrack/gaze_tracker.js' }}"></script>
+<script src="{{ static 'eyetrack/calibration_math.js' }}"></script>
+<script src="{{ static 'eyetrack/calibration.js' }}"></script>
 
 {{ endblock }}

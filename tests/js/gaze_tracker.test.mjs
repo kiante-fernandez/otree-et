@@ -9,7 +9,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { makeDom, loadTracker, gazeResult } from './harness.mjs';
+import { makeDom, makeRoiElement, loadTracker, gazeResult } from './harness.mjs';
 
 const FIELD_IDS = [
   'eyetrack_sample_count',
@@ -19,6 +19,7 @@ const FIELD_IDS = [
   'eyetrack_viewport_width',
   'eyetrack_viewport_height',
   'eyetrack_viewport_changed',
+  'eyetrack_rois',
   'eyetrack_runtime_error',
 ];
 
@@ -238,6 +239,75 @@ test('a window resize during tracking is flagged', async () => {
 
   assert.equal(dom.elements.get('eyetrack_viewport_changed').value, '1');
   assert.equal(dom.elements.get('eyetrack_viewport_width').value, '800');
+});
+
+test('regions of interest are captured at tracking start, in viewport pixels', async () => {
+  const rois = [
+    makeRoiElement('cell-cc', { x: 100, y: 200, w: 150, h: 60 }),
+    makeRoiElement('cell-dd', { x: 300, y: 200, w: 150, h: 60 }),
+  ];
+  const dom = makeDom({ elementIds: FIELD_IDS, roiElements: rois });
+  const SimpleGazeTracker = loadTracker(dom);
+  const tracker = new SimpleGazeTracker({});
+  tracker.isInitialized = true;
+  tracker.startTracking();
+
+  assert.equal(tracker.roiSnapshots.length, 1);
+  const snap = tracker.roiSnapshots[0];
+  assert.deepEqual(snap.items[0], { name: 'cell-cc', x: 100, y: 200, w: 150, h: 60 });
+  assert.deepEqual(snap.items[1], { name: 'cell-dd', x: 300, y: 200, w: 150, h: 60 });
+
+  await tracker.stopTracking();
+  const written = JSON.parse(dom.elements.get('eyetrack_rois').value);
+  assert.equal(written.length, 1, 'the snapshot reaches the form field');
+  assert.equal(written[0].items.length, 2);
+});
+
+test('a scroll re-captures the ROIs once movement settles', async () => {
+  // The rectangles are viewport-relative, so scrolling moves every region.
+  // Mapping gaze recorded after the scroll onto the pre-scroll rectangles
+  // would assign fixations to the wrong cells.
+  const roi = makeRoiElement('cell-cc', { x: 100, y: 200, w: 150, h: 60 });
+  const dom = makeDom({ elementIds: FIELD_IDS, roiElements: [roi] });
+  const SimpleGazeTracker = loadTracker(dom);
+  const tracker = new SimpleGazeTracker({});
+  tracker.isInitialized = true;
+  tracker.startTracking();
+
+  roi.rect.y = 50; // the page scrolled; the cell is now higher in the viewport
+  tracker._onScroll();
+  await new Promise((r) => setTimeout(r, 350)); // past the 250ms settle timer
+
+  assert.equal(tracker.roiSnapshots.length, 2);
+  assert.equal(tracker.roiSnapshots[1].items[0].y, 50);
+});
+
+test('destroy() detaches the resize and scroll listeners', () => {
+  // The calibration page's Recalibrate button destroys the tracker and builds
+  // a new one on a page that stays alive; a listener left behind would keep
+  // feeding a dead tracker, once per recalibration.
+  const listeners = [];
+  const dom = makeDom({ elementIds: FIELD_IDS });
+  dom.win.addEventListener = (type, fn) => listeners.push([type, fn]);
+  dom.win.removeEventListener = (type, fn) => {
+    const i = listeners.findIndex(([t, f]) => t === type && f === fn);
+    if (i !== -1) listeners.splice(i, 1);
+  };
+  const SimpleGazeTracker = loadTracker(dom);
+  const tracker = new SimpleGazeTracker({});
+  tracker.isInitialized = true;
+  tracker.startTracking();
+  assert.equal(listeners.length, 2, 'resize + scroll attached');
+
+  tracker.destroy();
+  assert.equal(listeners.length, 0, 'destroy() must remove both');
+});
+
+test('a page with no marked regions records no snapshots', () => {
+  const { tracker } = newTracker();
+  tracker.isInitialized = true;
+  tracker.startTracking();
+  assert.deepEqual(tracker.roiSnapshots, []);
 });
 
 test('the first uncaught page error is not overwritten by the tracker', async () => {

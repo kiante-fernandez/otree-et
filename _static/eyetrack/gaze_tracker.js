@@ -65,6 +65,12 @@ class SimpleGazeTracker {
     // blinked or looked away since.
     this.maxGazeAgeMs = config.maxGazeAgeMs || 400;
 
+    // Elements whose on-screen location matters for analysis (payoff cells,
+    // choice rows, ...). Their bounding rectangles are recorded alongside the
+    // samples so gaze can be mapped to regions of interest offline. Gaze
+    // coordinates are viewport pixels, and so are these rectangles.
+    this.roiSelector = config.roiSelector || '[data-eyetrack-roi]';
+
     this.allSamples = [];
     this.isTracking = false;
     this.isInitialized = false;
@@ -93,8 +99,16 @@ class SimpleGazeTracker {
     this.viewportHeight = 0;
     this.viewportChanged = false;
 
+    // Snapshots of the ROI rectangles: one at tracking start, another after
+    // any resize or scroll settles, each stamped with t_perf. A single
+    // snapshot would silently mis-map every sample recorded after the layout
+    // moved under the participant.
+    this.roiSnapshots = [];
+
     this._rejectReady = null;
     this._onResize = null;
+    this._onScroll = null;
+    this._roiTimer = null;
   }
 
   hasConsent() {
@@ -296,6 +310,44 @@ class SimpleGazeTracker {
     });
   }
 
+  /**
+   * Record where the marked regions of interest currently sit on screen.
+   *
+   * Rectangles come from getBoundingClientRect(), which is viewport-relative —
+   * the same coordinate space as the gaze samples. Called at tracking start
+   * and again whenever a resize or scroll settles, because either moves the
+   * regions under the participant and a single stale snapshot would mis-map
+   * every sample recorded afterwards.
+   */
+  captureRois() {
+    if (typeof document.querySelectorAll !== 'function') return;
+    const elements = document.querySelectorAll(this.roiSelector);
+    if (!elements.length) return;
+
+    const items = [];
+    for (const el of elements) {
+      const r = el.getBoundingClientRect();
+      items.push({
+        name: el.getAttribute('data-eyetrack-roi') || el.id || 'unnamed',
+        x: Math.round(r.left),
+        y: Math.round(r.top),
+        w: Math.round(r.width),
+        h: Math.round(r.height),
+      });
+    }
+    this.roiSnapshots.push({ t_perf: performance.now(), items });
+  }
+
+  // Re-capture once movement has settled. Capturing on every scroll event
+  // would record hundreds of transient layouts nobody was fixating.
+  _scheduleRoiCapture() {
+    if (this._roiTimer) clearTimeout(this._roiTimer);
+    this._roiTimer = setTimeout(() => {
+      this._roiTimer = null;
+      this.captureRois();
+    }, 250);
+  }
+
   updateGazeDot(x, y) {
     const gazeDot = document.getElementById('gaze-dot');
     if (gazeDot) {
@@ -325,6 +377,7 @@ class SimpleGazeTracker {
     set('eyetrack_viewport_width', this.viewportWidth.toString());
     set('eyetrack_viewport_height', this.viewportHeight.toString());
     set('eyetrack_viewport_changed', this.viewportChanged ? '1' : '0');
+    set('eyetrack_rois', JSON.stringify(this.roiSnapshots));
 
     // The page records the first uncaught error there. Do not overwrite it:
     // whatever failed first is the more informative diagnosis.
@@ -344,8 +397,14 @@ class SimpleGazeTracker {
       this.viewportChanged = true;
       this.viewportWidth = window.innerWidth;
       this.viewportHeight = window.innerHeight;
+      this._scheduleRoiCapture();
     };
     window.addEventListener('resize', this._onResize);
+
+    this._onScroll = () => this._scheduleRoiCapture();
+    window.addEventListener('scroll', this._onScroll, { passive: true });
+
+    this.captureRois();
 
     this.updateStatus('active', true);
   }
@@ -364,6 +423,14 @@ class SimpleGazeTracker {
       window.removeEventListener('resize', this._onResize);
       this._onResize = null;
     }
+    if (this._onScroll) {
+      window.removeEventListener('scroll', this._onScroll);
+      this._onScroll = null;
+    }
+    if (this._roiTimer) {
+      clearTimeout(this._roiTimer);
+      this._roiTimer = null;
+    }
 
     this.writeFormFields();
 
@@ -371,7 +438,7 @@ class SimpleGazeTracker {
     if (gazeDot) gazeDot.style.display = 'none';
   }
 
-  /** Release the camera, the worker, and the library's click listener. */
+  /** Release the camera, the worker, and every listener this tracker added. */
   destroy() {
     try {
       if (this.proxy) this.proxy.destroy();
@@ -384,6 +451,22 @@ class SimpleGazeTracker {
       }
     } catch (err) {
       console.warn('GazeTracker: webcam teardown failed', err);
+    }
+    // destroy() is not only called at page unload: the calibration page's
+    // Recalibrate button destroys the tracker and builds a fresh one on a page
+    // that stays alive. Leaving these attached would leak a listener per
+    // recalibration, each still feeding a dead tracker.
+    if (this._onResize) {
+      window.removeEventListener('resize', this._onResize);
+      this._onResize = null;
+    }
+    if (this._onScroll) {
+      window.removeEventListener('scroll', this._onScroll);
+      this._onScroll = null;
+    }
+    if (this._roiTimer) {
+      clearTimeout(this._roiTimer);
+      this._roiTimer = null;
     }
     this.proxy = null;
     this.webcamClient = null;

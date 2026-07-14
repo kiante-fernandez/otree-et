@@ -1,6 +1,14 @@
-"""Multiple Price List risk-elicitation task with webcam eye tracking."""
+"""
+Multiple Price List risk-elicitation task with webcam eye tracking.
 
-import json
+Run after the `eyetrack` app (consent + calibration):
+
+    app_sequence = ['eyetrack', 'mpl_risk']
+
+The eye-tracking pieces on the Decision page come from eyetrack_shared and
+eyetrack/tracked_page.html; this file contains only the task.
+"""
+
 import random
 
 from otree.api import (
@@ -13,6 +21,8 @@ from otree.api import (
     BasePlayer,
     Page,
 )
+
+from eyetrack_shared import EYETRACK_FORM_FIELDS, eyetrack_js_vars, gaze_rows
 
 doc = __doc__
 
@@ -28,10 +38,6 @@ class C(BaseConstants):
     LOTTERY_HIGH = cu(4.0)
     LOTTERY_PROB = 0.5
     PERCENT_MULTIPLIER = 100
-    CALIBRATION_DELAY_MS = 500
-    # The tracker keeps a support set of this size. Passed through to the
-    # library so it matches the number of points we actually present.
-    MAX_CALIBRATION_POINTS = 5
 
     # choice_N values
     OPTION_A = 1  # the safe amount for that row
@@ -83,34 +89,15 @@ class Player(BasePlayer):
     # is 1 and they began on the safe option.
     switch_row = models.IntegerField(blank=True)
 
-    eyetrack_consent = models.BooleanField(initial=False)
-    # Error in pixels on the held-out validation points. Empty means the
-    # participant skipped calibration: their gaze is from an uncalibrated model.
-    eyetrack_calibration_rmse = models.FloatField(blank=True)
-    # The same error as a fraction of the screen diagonal. Pixels are not
-    # comparable across participants' monitors; this is.
-    eyetrack_calibration_rmse_fraction = models.FloatField(blank=True)
+    # --- eye tracking (see eyetrack_shared.py for what each field means) ---
     eyetrack_sample_count = models.IntegerField(initial=0)
-    # Gaze coordinates are screen pixels, so they are meaningless without the
-    # size of the screen they were measured on.
+    eyetrack_gaze_data = models.LongStringField(blank=True)
+    eyetrack_init_status = models.StringField(initial='unknown')
+    eyetrack_calibration_restored = models.BooleanField(initial=False)
     eyetrack_viewport_width = models.IntegerField(initial=0)
     eyetrack_viewport_height = models.IntegerField(initial=0)
-    # True if the window was resized while tracking. Every sample after the
-    # resize is scaled to a different viewport than the ones before it.
     eyetrack_viewport_changed = models.BooleanField(initial=False)
-    eyetrack_gaze_data = models.LongStringField(blank=True)  # JSON array of samples
-    # Outcome of eye-tracker initialization. One of:
-    #   ok           — the gaze model loaded and samples were collected
-    #   no_consent   — participant did not grant camera access
-    #   init_failed  — the tracker could not start; no samples were recorded
-    #   unknown      — the page never reported a status (e.g. crash before init)
-    eyetrack_init_status = models.StringField(initial='unknown')
-    # Whether the tracked page measured gaze with the model this participant
-    # calibrated, or with the uncalibrated base model. False means the gaze
-    # below is not calibrated to them, whatever eyetrack_calibration_rmse says.
-    eyetrack_calibration_restored = models.BooleanField(initial=False)
-    # First uncaught JS error during the tracked page (empty if no crash).
-    # A non-empty value means sample collection may have stopped early.
+    eyetrack_rois = models.LongStringField(blank=True)
     eyetrack_runtime_error = models.LongStringField(blank=True)
 
 
@@ -176,83 +163,11 @@ def calculate_payoff(player: Player):
         player.lottery_outcome = C.NO_CHOICE
 
 
-def get_calibration_points():
-    """
-    Points the model is adapted to, as percentages of the viewport.
-
-    Exactly C.MAX_CALIBRATION_POINTS of them: the tracker keeps a support set of
-    that size and evicts the oldest, so a longer list would silently discard the
-    points clicked first.
-    """
-    return [
-        {'x': 10, 'y': 10}, {'x': 90, 'y': 10},
-        {'x': 50, 'y': 50},
-        {'x': 10, 'y': 90}, {'x': 90, 'y': 90},
-    ]
-
-
-def get_validation_points():
-    """
-    Points used only to measure error, never to adapt the model.
-
-    Calibration error measured on the same points the model was fit to is
-    optimistic by construction. These are held out, so `eyetrack_calibration_rmse`
-    is an honest estimate of accuracy on unseen screen locations.
-    """
-    return [
-        {'x': 50, 'y': 10},
-        {'x': 10, 'y': 50}, {'x': 90, 'y': 50},
-        {'x': 50, 'y': 90},
-    ]
-
-
-def get_calibration_key(player: Player):
-    """
-    Where this participant's personalised model is stored in the browser's
-    IndexedDB. Keyed by participant so two people sharing a machine cannot
-    inherit each other's calibration.
-    """
-    return f'webeyetrack-calib-{player.participant.code}'
-
-
-class Consent(Page):
-    form_model = 'player'
-    form_fields = ['eyetrack_consent']
-
-
-class Calibration(Page):
-    form_model = 'player'
-    form_fields = ['eyetrack_calibration_rmse', 'eyetrack_calibration_rmse_fraction']
-
-    @staticmethod
-    def vars_for_template(player: Player):
-        return dict(
-            num_points=len(get_calibration_points()) + len(get_validation_points()),
-        )
-
-    @staticmethod
-    def js_vars(player: Player):
-        return dict(
-            calibration_points=get_calibration_points(),
-            validation_points=get_validation_points(),
-            delay_ms=C.CALIBRATION_DELAY_MS,
-            max_calibration_points=C.MAX_CALIBRATION_POINTS,
-            calibration_key=get_calibration_key(player),
-            # The server-side record of consent. Relying on sessionStorage alone
-            # silently disables tracking for a participant who consented but
-            # resumed in a new tab.
-            eyetrack_consent=bool(player.eyetrack_consent),
-        )
-
-
 class Decision(Page):
     form_model = 'player'
-    form_fields = [f'choice_{row}' for row in range(1, C.NUM_CHOICES + 1)] + [
-        'eyetrack_sample_count', 'eyetrack_gaze_data',
-        'eyetrack_init_status', 'eyetrack_calibration_restored',
-        'eyetrack_viewport_width', 'eyetrack_viewport_height',
-        'eyetrack_viewport_changed', 'eyetrack_runtime_error',
-    ]
+    form_fields = (
+        [f'choice_{row}' for row in range(1, C.NUM_CHOICES + 1)] + EYETRACK_FORM_FIELDS
+    )
 
     @staticmethod
     def vars_for_template(player: Player):
@@ -274,10 +189,7 @@ class Decision(Page):
 
     @staticmethod
     def js_vars(player: Player):
-        return dict(
-            calibration_key=get_calibration_key(player),
-            eyetrack_consent=bool(player.eyetrack_consent),
-        )
+        return eyetrack_js_vars(player)
 
     @staticmethod
     def before_next_page(player: Player, timeout_happened):
@@ -295,58 +207,9 @@ class Results(Page):
         return dict(safe_amount=safe_amount, selected_choice=selected_choice)
 
 
-page_sequence = [Consent, Calibration, Decision, Results]
+page_sequence = [Decision, Results]
 
 
 def custom_export(players):
-    """
-    Long-format export of every gaze sample, one row per sample.
-    Available in oTree's Data tab as the "custom" export.
-
-    Columns:
-      x, y            screen pixels, or empty when no face was detected
-      norm_x, norm_y  the library's normalized point of gaze, in [-0.5, 0.5]
-      gaze_state      'open' when a face was tracked; anything else means the
-                      coordinates are empty rather than a real fixation
-      clipped         1 when the estimate was saturated at a screen edge. The
-                      tracker clips gaze to the screen, so such a sample is
-                      censored: the participant was looking further out.
-      t_perf          milliseconds since page load (monotonic; use this)
-      frame_time      the camera's clock, in seconds since the stream started
-    """
-    yield [
-        'session_code', 'participant_code', 'page',
-        'eyetrack_init_status', 'sample_index',
-        'x', 'y', 'norm_x', 'norm_y',
-        'gaze_state', 'clipped', 't_perf', 'frame_time',
-    ]
-
-    for player in players:
-        raw = player.eyetrack_gaze_data
-        if not raw:
-            continue
-        try:
-            samples = json.loads(raw)
-        except (ValueError, TypeError):
-            continue
-        # eyetrack_gaze_data is written by the participant's browser. Anything
-        # that parses as JSON reaches here, so check the shape too: a bare
-        # number, string, or object would otherwise raise out of this generator
-        # and abort the export for every participant in the session.
-        if not isinstance(samples, list):
-            continue
-        for i, s in enumerate(samples):
-            if not isinstance(s, dict):
-                continue
-            yield [
-                player.session.code,
-                player.participant.code,
-                'Decision',
-                player.eyetrack_init_status,
-                i,
-                s.get('x'), s.get('y'),
-                s.get('norm_x'), s.get('norm_y'),
-                s.get('gaze_state'),
-                1 if s.get('clipped') else 0,
-                s.get('t_perf'), s.get('frame_time'),
-            ]
+    """One row per gaze sample; see eyetrack_shared.gaze_rows for the columns."""
+    yield from gaze_rows(players, 'mpl_risk', 'Decision')

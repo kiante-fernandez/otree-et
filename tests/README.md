@@ -60,6 +60,13 @@ python tests/test_custom_export.py
 python -m pytest tests/test_custom_export.py
 ```
 
+## 2b. Unit test — `test_matrix_game.py`
+
+Pure Python. Verifies the matrix game is a genuine Prisoner's Dilemma
+(temptation > reward > punishment > sucker, and cooperation jointly efficient),
+that the payoff matrix covers all four outcomes, and that the drawn opponent
+decision is recorded so every payoff can be audited.
+
 ## 3. End-to-end smoke test — `smoke_e2e.py`
 
 Headless Chromium walks the full Consent → Calibration → Decision →
@@ -119,7 +126,19 @@ otree devserver                              # in one terminal
 python tests/test_calibration_persistence.py # in another
 ```
 
-**Known gap.** Chromium's synthetic camera shows a test pattern with no face,
+## 5. Matrix game end-to-end — `test_matrix_e2e.py`
+
+Walks the `matrix_game` demo on the shared `eyetrack` app: a second task with
+no eye-tracking code of its own beyond the include and the field block. Asserts
+the payoff cells' `data-eyetrack-roi` rectangles are captured and posted, and
+that the Results payoff matches the recorded choices and the matrix.
+
+**Known gaps.** No browser test walks the `task_battery` config end to end;
+the calibrate-once-track-everywhere mechanism it demonstrates is the same
+participant-keyed save/restore that `test_calibration_persistence.py` pins
+down, so battery coverage would only re-test the page sequence.
+
+Chromium's synthetic camera shows a test pattern with no face,
 so the tracker returns `gaze_state: 'closed'` for every sample and `calibrate()`
 has nothing to adapt to. The browser suites therefore verify the data path, the
 refusal behaviour, and the persistence mechanism — but not calibration

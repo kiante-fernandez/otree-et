@@ -4,8 +4,8 @@
 # releases, and this project is verified against 6.x.
 otree>=6.0,<7.0
 
-# uvicorn is what the Procfile runs in production. oTree already depends on it,
-# but pin it here so a deployment cannot resolve a version without websockets.
+# oTree runs uvicorn internally ('otree prodserver'); pin it so a deployment
+# cannot resolve a version without websockets support.
 uvicorn[standard]>=0.20
 
 # Only needed for the end-to-end browser test (tests/smoke_e2e.py):

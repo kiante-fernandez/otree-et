@@ -33,15 +33,6 @@
   At the end, one row will be randomly selected for payment.
 </p>
 
-<input type="hidden" name="eyetrack_sample_count" id="eyetrack_sample_count" value="0">
-<input type="hidden" name="eyetrack_gaze_data" id="eyetrack_gaze_data" value="[]">
-<input type="hidden" name="eyetrack_init_status" id="eyetrack_init_status" value="unknown">
-<input type="hidden" name="eyetrack_calibration_restored" id="eyetrack_calibration_restored" value="0">
-<input type="hidden" name="eyetrack_viewport_width" id="eyetrack_viewport_width" value="0">
-<input type="hidden" name="eyetrack_viewport_height" id="eyetrack_viewport_height" value="0">
-<input type="hidden" name="eyetrack_viewport_changed" id="eyetrack_viewport_changed" value="0">
-<input type="hidden" name="eyetrack_runtime_error" id="eyetrack_runtime_error" value="">
-
 <table class="table">
   <thead>
     <tr>
@@ -55,9 +46,9 @@
     {{ for row_data in rows }}
     <tr>
       <td>{{ row_data.row }}</td>
-      <td>{{ row_data.safe_amount }}</td>
-      <td>{{ prob_high_percent }}% chance of {{ C.LOTTERY_HIGH }}, {{ prob_low_percent }}% chance of {{ C.LOTTERY_LOW }}</td>
-      <td>{{ formfield row_data.field_name }}</td>
+      <td data-eyetrack-roi="row{{ row_data.row }}-safe">{{ row_data.safe_amount }}</td>
+      <td data-eyetrack-roi="row{{ row_data.row }}-lottery">{{ prob_high_percent }}% chance of {{ C.LOTTERY_HIGH }}, {{ prob_low_percent }}% chance of {{ C.LOTTERY_LOW }}</td>
+      <td data-eyetrack-roi="row{{ row_data.row }}-choice">{{ formfield row_data.field_name }}</td>
     </tr>
     {{ endfor }}
   </tbody>
@@ -65,73 +56,6 @@
 
 {{ next_button }}
 
-<script type="module">
-import { loadWebEyeTrack } from '{{ static "webeyetrack-loader.js" }}';
-// Served from this project's own static files; the browser cache usually makes
-// this free after the Calibration page.
-loadWebEyeTrack('{{ static "webeyetrack/webeyetrack.js" }}')
-    .catch(err => console.warn('WebEyeTrack load failed:', err));
-</script>
-
-<script>{{ include_sibling 'gaze_tracker.js' }}</script>
-<script>
-const tracker = new SimpleGazeTracker({
-    videoElementId: 'webcam-video',
-    // Restore the model the participant calibrated on the previous page. Model
-    // adaptation lives in a Web Worker that this page load recreated from
-    // scratch, so without this the gaze below comes from an uncalibrated model.
-    calibrationKey: js_vars.calibration_key,
-    // The ten choices are radio buttons. WebEyeTrack would treat every one of
-    // those clicks as "the participant was looking here" and retrain on it,
-    // dragging the model toward the choice column -- precisely the region an
-    // attention analysis wants to measure.
-    adaptOnClick: false,
-});
-
-// Capture the first uncaught error so it survives form submit. Non-empty
-// eyetrack_runtime_error in the data flags participants whose tracking may
-// have stopped mid-task.
-(function captureFirstError() {
-    const input = document.getElementById('eyetrack_runtime_error');
-    function record(message) {
-        if (input && !input.value) input.value = message.slice(0, 1000);
-    }
-    window.addEventListener('error', (e) => {
-        const where = e.filename ? ` (${e.filename}:${e.lineno})` : '';
-        record(`${e.message || 'unknown error'}${where}`);
-    });
-    window.addEventListener('unhandledrejection', (e) => {
-        const reason = e.reason && (e.reason.stack || e.reason.message || String(e.reason));
-        record(`unhandledrejection: ${reason || 'unknown'}`);
-    });
-})();
-
-document.addEventListener('DOMContentLoaded', async () => {
-    const initialized = await tracker.init();
-    if (initialized) {
-        tracker.startTracking();
-    }
-
-    // The form submit listener has to drop itself before re-submitting,
-    // otherwise the second submit would be intercepted again (infinite loop).
-    const form = document.querySelector('form');
-    if (form) {
-        let submitting = false;
-        async function onSubmit(e) {
-            if (submitting) return;
-            e.preventDefault();
-            submitting = true;
-            await tracker.stopTracking();
-            form.removeEventListener('submit', onSubmit);
-            form.submit();
-        }
-        form.addEventListener('submit', onSubmit);
-    }
-});
-
-// Release the camera and the worker rather than waiting for the browser to
-// reclaim them at some point after navigation.
-window.addEventListener('beforeunload', () => tracker.destroy());
-</script>
+{{ include 'eyetrack/tracked_page.html' }}
 
 {{ endblock }}

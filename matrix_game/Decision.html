@@ -1,0 +1,83 @@
+{{ extends "global/Page.html" }}
+{{ block title }}Your Choice{{ endblock }}
+
+{{ block styles }}
+<style>
+#webcam-video {
+    width: 120px;
+    height: 90px;
+    opacity: 0.5;
+}
+#webcam-video:hover { opacity: 1; }
+
+/* Generous cells: gaze has to be attributable to one cell, so give each one
+   room. Own and other payoffs sit side by side because horizontal gaze
+   resolution is far better than vertical. */
+.payoff-matrix { width: auto; margin: 1.5rem auto; }
+.payoff-matrix td, .payoff-matrix th {
+    text-align: center;
+    vertical-align: middle;
+    padding: 1.6rem 2.2rem;
+}
+.payoff-cell .own { font-weight: bold; }
+.payoff-cell .other { color: #6c757d; }
+.payoff-cell .sep { color: #adb5bd; padding: 0 0.4rem; }
+</style>
+{{ endblock }}
+
+{{ block content }}
+
+<div id="tracking-status" class="status-inactive">Eye tracking: initializing...</div>
+<div id="gaze-dot"></div>
+<video id="webcam-video" autoplay playsinline muted></video>
+
+<p>
+  You are playing a one-shot game with another player. Each of you chooses,
+  privately and simultaneously, whether to <b>cooperate</b> or <b>defect</b>.
+  The combination of the two choices determines what each of you earns:
+</p>
+
+<p class="text-muted">
+  In each cell, the <b>bold</b> amount on the left is yours; the grey amount on
+  the right is the other player's.
+</p>
+
+<table class="table table-bordered payoff-matrix">
+  <tr>
+    <th colspan="2" rowspan="2"></th>
+    <th colspan="2">The other player</th>
+  </tr>
+  <tr>
+    <th>Cooperate</th>
+    <th>Defect</th>
+  </tr>
+  <tr>
+    <th rowspan="2">You</th>
+    <th data-eyetrack-roi="row-cooperate">Cooperate</th>
+    <td class="payoff-cell" data-eyetrack-roi="cell-cc">
+      <span class="own" data-eyetrack-roi="cc-own">{{ C.PAYOFF_REWARD }}</span><span class="sep">/</span><span class="other" data-eyetrack-roi="cc-other">{{ C.PAYOFF_REWARD }}</span>
+    </td>
+    <td class="payoff-cell" data-eyetrack-roi="cell-cd">
+      <span class="own" data-eyetrack-roi="cd-own">{{ C.PAYOFF_SUCKER }}</span><span class="sep">/</span><span class="other" data-eyetrack-roi="cd-other">{{ C.PAYOFF_TEMPTATION }}</span>
+    </td>
+  </tr>
+  <tr>
+    <th data-eyetrack-roi="row-defect">Defect</th>
+    <td class="payoff-cell" data-eyetrack-roi="cell-dc">
+      <span class="own" data-eyetrack-roi="dc-own">{{ C.PAYOFF_TEMPTATION }}</span><span class="sep">/</span><span class="other" data-eyetrack-roi="dc-other">{{ C.PAYOFF_SUCKER }}</span>
+    </td>
+    <td class="payoff-cell" data-eyetrack-roi="cell-dd">
+      <span class="own" data-eyetrack-roi="dd-own">{{ C.PAYOFF_PUNISHMENT }}</span><span class="sep">/</span><span class="other" data-eyetrack-roi="dd-other">{{ C.PAYOFF_PUNISHMENT }}</span>
+    </td>
+  </tr>
+</table>
+
+<div data-eyetrack-roi="choice-controls">
+  {{ formfield 'cooperate' }}
+</div>
+
+{{ next_button }}
+
+{{ include 'eyetrack/tracked_page.html' }}
+
+{{ endblock }}

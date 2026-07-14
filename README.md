@@ -4,10 +4,10 @@ A working integration of in-browser webcam eye tracking
 ([WebEyeTrack](https://github.com/RedForestAI/WebEyeTrack)) for
 [oTree](https://www.otree.org/) experiments.
 
-The demo task is a Multiple Price List (MPL) for measuring risk
-preferences — a common task in behavioral economics. You can run it as-is
-to see eye tracking working, then copy the eye-tracking pieces into your
-own oTree app.
+The demos are standard behavioral-economics tasks — a multiple price list
+for risk preferences, and a one-shot Prisoner's Dilemma played on a payoff
+matrix — each with live eye tracking added. Run any of them as-is to see the
+tracking working, then follow the same recipe to add it to your own task.
 
 ---
 
@@ -41,9 +41,11 @@ Do not run `otree resetdb` first. `devserver` keeps its database in memory and
 writes it out when you stop it; a database created by `resetdb` is missing a
 version marker that `devserver` then rejects.
 
-Open <http://localhost:8000> in your browser, click **Demo**, then
-**mpl_risk**, and grant the camera permission when your browser asks.
-The demo takes one or two minutes to walk through.
+Open <http://localhost:8000> in your browser, click **Demo**, and pick a
+task. Grant the camera permission when your browser asks. Each demo takes a
+minute or two to walk through; the calibration step is the same in all of
+them, so the "Both tasks" session shows the point best — calibrate once,
+then two tracked tasks.
 
 Everything the tracker needs — the library, the gaze model, and MediaPipe's
 face detector — ships with this repository and is served from `/static/`. No
@@ -55,9 +57,9 @@ any standard oTree command works and nothing depends on a CDN being up.
 | Page | What happens |
 |------|-------------|
 | Consent | Asks for camera permission. The Next button only appears once you grant access. |
-| Calibration | Click each red dot as it appears. The completion screen shows a calibration error in pixels (lower is better). |
-| Decision | The 10-row MPL task. A small webcam preview is in the corner, and a faint red dot follows your gaze. |
-| Results | Picks one row at random and shows the payoff. |
+| Calibration | Click each red dot as it appears. The completion screen shows the calibration error measured on held-out points. |
+| The task | The 10-row price list, or the 2×2 payoff matrix, depending on the demo. A small webcam preview sits in the corner and a faint red dot follows your gaze. |
+| Results | The payoff, and how it was determined. |
 
 To see the data, open <http://localhost:8000/admin>. Each participant has
 their MPL choices plus the eye-tracking fields listed below. The Custom
@@ -74,115 +76,127 @@ export gives one row per gaze sample for analysis.
 | "oTree has been updated. Please delete your database" | Your `db.sqlite3` predates the installed oTree, or was created by `otree resetdb`. Run `rm db.sqlite3` and start `otree devserver` again. |
 | `eyetrack_calibration_rmse` is empty | The participant skipped calibration. Their gaze comes from an uncalibrated model; exclude or flag them. |
 
-## Add eye tracking to your own oTree app
+## The example tasks
 
-A few files to copy, six fields to add, one block of HTML.
+Three demo sessions, each a task researchers already know, with live eye
+tracking added:
 
-**1. Copy these into your project:**
+| Session config | Task | Why gaze is interesting here |
+|---|---|---|
+| `mpl_risk` | Multiple price list (risk preferences) | Attention to the safe amounts versus the lottery down the list |
+| `matrix_game` | One-shot Prisoner's Dilemma, 2×2 payoff matrix | Which payoffs a player inspects — own versus other, cooperation versus defection cells — before choosing |
+| `task_battery` | Both tasks in one session | Calibrate once at the start; the calibration follows the participant into every task |
 
-- [`_static/webeyetrack/`](_static/webeyetrack/) — the vendored eye-tracking library
-- [`_static/web/`](_static/web/) — the gaze model files (about 700 KB)
-- [`_static/webeyetrack-loader.js`](_static/webeyetrack-loader.js) — loads the library
-- [`mpl_risk/gaze_tracker.js`](mpl_risk/gaze_tracker.js) — the `SimpleGazeTracker` class that records samples
-- [`vendor/webeyetrack/`](vendor/webeyetrack/) and [`tools/build_webeyetrack.sh`](tools/build_webeyetrack.sh) — the pinned source and patches the library is built from
+Each config runs the shared [`eyetrack`](eyetrack/) app first (camera consent,
+then calibration). The calibrated gaze model is stored in the participant's
+browser under a key derived from their participant code, and every tracked page
+afterwards — in any app — restores it.
 
-**2. Add six fields to your `Player` model:**
+The matrix game is single-player so the demo can run solo: the other player's
+decision is drawn at random at submission and the Results page says so. In a
+real study, replace `draw_opponent()` in
+[`matrix_game/__init__.py`](matrix_game/__init__.py) with decisions
+pre-recorded from human participants.
+
+## Add eye tracking to your own oTree task
+
+The tasks above are worked examples of a four-step recipe. `matrix_game` is the
+cleaner one to copy from — it was written against this recipe from the start.
+
+**1. Put the shared `eyetrack` app first** in your session config:
 
 ```python
-eyetrack_consent           = models.BooleanField(initial=False)
-eyetrack_calibration_rmse  = models.FloatField(blank=True)
-eyetrack_sample_count      = models.IntegerField(initial=0)
-eyetrack_gaze_data         = models.LongStringField(blank=True)
-eyetrack_init_status       = models.StringField(initial='unknown')
-eyetrack_runtime_error     = models.LongStringField(blank=True)
+dict(name='my_study', app_sequence=['eyetrack', 'my_task'], num_demo_participants=1)
 ```
 
-**3. Use the bundled consent and calibration pages.** Drop in
-[`Consent.html`](mpl_risk/Consent.html) +
-[`consent.js`](mpl_risk/consent.js) and
-[`Calibration.html`](mpl_risk/Calibration.html) +
-[`calibration.js`](mpl_risk/calibration.js) +
-[`calibration_math.js`](mpl_risk/calibration_math.js) as-is, or merge them into
-your existing intro flow.
+and declare the participant fields it writes (in `settings.py`):
 
-**4. Track on the page(s) you care about.** Mirror
-[`Decision.html`](mpl_risk/Decision.html):
+```python
+PARTICIPANT_FIELDS = [
+    'eyetrack_consent',
+    'eyetrack_calibration_rmse',
+    'eyetrack_calibration_rmse_fraction',
+]
+```
+
+**2. Add the field block to your task's `Player` model** (copy it verbatim from
+[`matrix_game/__init__.py`](matrix_game/__init__.py) — nine `eyetrack_*`
+fields), and wire the tracked Page with the two helpers from
+[`eyetrack_shared.py`](eyetrack_shared.py):
+
+```python
+from eyetrack_shared import EYETRACK_FORM_FIELDS, eyetrack_js_vars, gaze_rows
+
+class Decision(Page):
+    form_model = 'player'
+    form_fields = ['your_task_field'] + EYETRACK_FORM_FIELDS
+
+    @staticmethod
+    def js_vars(player):
+        return eyetrack_js_vars(player)
+
+
+def custom_export(players):
+    yield from gaze_rows(players, 'my_task', 'Decision')
+```
+
+**3. Add three elements and one include to the tracked template:**
 
 ```html
+<div id="tracking-status" class="status-inactive">Eye tracking: initializing...</div>
+<div id="gaze-dot"></div>
 <video id="webcam-video" autoplay playsinline muted></video>
-<input type="hidden" name="eyetrack_sample_count"   id="eyetrack_sample_count"   value="0">
-<input type="hidden" name="eyetrack_gaze_data"      id="eyetrack_gaze_data"      value="[]">
-<input type="hidden" name="eyetrack_init_status"    id="eyetrack_init_status"    value="unknown">
-<input type="hidden" name="eyetrack_runtime_error"  id="eyetrack_runtime_error"  value="">
 
-<script type="module">
-  import { loadWebEyeTrack } from '{{ static "webeyetrack-loader.js" }}';
-  loadWebEyeTrack('{{ static "webeyetrack/webeyetrack.js" }}');
-</script>
-<script>{{ include_sibling 'gaze_tracker.js' }}</script>
-<script>
-  const tracker = new SimpleGazeTracker({
-    videoElementId: 'webcam-video',
-    // Restores the model calibrated on the Calibration page. Without it this
-    // page's gaze comes from an uncalibrated model.
-    calibrationKey: js_vars.calibration_key,
-    // Do not let the participant's clicks on your own controls retrain the
-    // gaze model toward whatever they clicked.
-    adaptOnClick: false,
-  });
-  document.addEventListener('DOMContentLoaded', async () => {
-    if (await tracker.init()) tracker.startTracking();
-    const form = document.querySelector('form');
-    let submitting = false;
-    form.addEventListener('submit', async function onSubmit(e) {
-      if (submitting) return;
-      e.preventDefault();
-      submitting = true;
-      await tracker.stopTracking();   // writes the hidden fields
-      form.removeEventListener('submit', onSubmit);
-      form.submit();
-    });
-  });
-  window.addEventListener('beforeunload', () => tracker.destroy());
-</script>
+...your task's content...
+
+{{ include 'eyetrack/tracked_page.html' }}
 ```
 
-**5. Add the new fields to `form_fields`** on the tracked Page:
-`'eyetrack_sample_count', 'eyetrack_gaze_data', 'eyetrack_init_status', 'eyetrack_runtime_error'`.
+**4. Mark the regions your analysis cares about.** Any element with a
+`data-eyetrack-roi="name"` attribute has its on-screen rectangle recorded
+alongside the gaze samples (again at every resize or scroll), so fixations can
+be assigned to payoff cells, table rows, or options offline:
 
-**6. Pass the calibration key and consent** from that Page's `js_vars`:
-
-```python
-@staticmethod
-def js_vars(player):
-    return dict(
-        calibration_key=get_calibration_key(player),
-        eyetrack_consent=bool(player.eyetrack_consent),
-    )
+```html
+<td data-eyetrack-roi="cell-cooperate-cooperate">{{ C.PAYOFF_REWARD }}</td>
 ```
+
+That is the whole integration. Consent, calibration, honest failure reporting,
+and the data path are all inherited from the shared app; your task stays a
+plain oTree app.
 
 Calibration lives in the gaze model's weights, inside a Web Worker that every
-oTree page load recreates. The key is what lets a calibration performed once
-apply to every page that follows.
+oTree page load recreates. The participant-keyed storage is what lets a
+calibration performed once apply to every page — and every app — that follows.
 
 ## Data captured
 
 ### Per participant
 
+On the `eyetrack` app (once per participant, also copied to the participant):
+
 | Field | Meaning |
 |-------|---------|
-| `num_switches` | How many times the participant changed option down the list. A coherent respondent switches exactly **once**. |
-| `switch_row` | The row on which they first take the lottery. Empty unless `num_switches` is 1 and they started on the safe option — multiple switchers have not revealed a risk preference and are normally excluded. |
 | `eyetrack_consent` | Whether camera permission was granted |
-| `eyetrack_calibration_rmse` | Error in pixels on the four held-out validation points (lower is better). **Empty means calibration was skipped** — the gaze below comes from an uncalibrated model. |
+| `eyetrack_calibration_rmse` | Error in pixels on the four held-out validation points (lower is better). **Empty means calibration was skipped** — all gaze from this participant comes from an uncalibrated model. |
 | `eyetrack_calibration_rmse_fraction` | The same error as a fraction of the screen diagonal. **Compare participants on this, not on pixels.** |
-| `eyetrack_sample_count` | Total gaze samples collected |
+
+On every tracked task page:
+
+| Field | Meaning |
+|-------|---------|
+| `eyetrack_sample_count` | Total gaze samples collected on this page |
 | `eyetrack_gaze_data` | JSON array of all gaze samples |
+| `eyetrack_rois` | Snapshots of every `data-eyetrack-roi` element's on-screen rectangle (re-captured after each resize or scroll), for mapping gaze to regions offline |
 | `eyetrack_viewport_width`, `eyetrack_viewport_height` | The screen the gaze was measured on. Sample `x`/`y` are pixels and mean nothing without it. |
 | `eyetrack_viewport_changed` | `True` if the window was resized mid-task, so samples before and after are scaled to different viewports |
 | `eyetrack_init_status` | `ok`, `no_consent`, `init_failed`, or `unknown` |
-| `eyetrack_calibration_restored` | Whether the tracked page used the model **this participant** calibrated. `False` means their gaze came from the uncalibrated base model, whatever the RMSE says. |
+| `eyetrack_calibration_restored` | Whether this page used the model **this participant** calibrated. `False` means their gaze came from the uncalibrated base model, whatever the RMSE says. |
 | `eyetrack_runtime_error` | First uncaught browser error on the tracked page (empty if none) |
+
+The MPL task also records `num_switches` and `switch_row` (a coherent
+respondent switches option exactly once; multiple switchers have not revealed
+a risk preference and are normally excluded).
 
 `eyetrack_calibration_rmse` is measured on points the model was *not* fitted to.
 Error on the points used for calibration would be optimistic by construction.
@@ -255,6 +269,7 @@ otree devserver                              # in one terminal
 python tests/smoke_e2e.py                    # in another
 python tests/test_calibration_persistence.py # calibration survives the page change
 python tests/test_offline.py                 # works with every CDN blocked
+python tests/test_matrix_e2e.py              # second task on the shared eyetrack app
 ```
 
 See [`tests/README.md`](tests/README.md) for what each test checks.
@@ -307,8 +322,11 @@ the tracker still works. Refresh the vendored assets with
 (and `--check` to verify their checksums).
 
 **Heroku-style hosts.** The included [Procfile](Procfile) starts
-`uvicorn otree.asgi:app --host 0.0.0.0 --port $PORT`. Run
-`otree resetdb --noinput` once after deploy.
+`otree prodserver $PORT`. Run `otree resetdb --noinput` once after deploy.
+Do not launch `otree.asgi:app` with uvicorn directly: oTree's own commands run
+a setup step (participant fields, currency, database checks) that a bare ASGI
+import skips, and what breaks first is silent — participant fields stop
+persisting.
 
 **oTree Hub.** Supported. The gaze model is served from `/static/`, which
 oTree serves everywhere, so no custom server is needed.

@@ -44,7 +44,7 @@ def make_player(samples, init_status='ok', session='S1', participant='P1'):
 
 
 HEADER = [
-    'session_code', 'participant_code', 'page',
+    'session_code', 'participant_code', 'app', 'page',
     'eyetrack_init_status', 'sample_index',
     'x', 'y', 'norm_x', 'norm_y',
     'gaze_state', 'clipped', 't_perf', 'frame_time',
@@ -71,10 +71,11 @@ def test_yields_one_row_per_sample():
     first = rows[1]
     assert first[0] == 'SESS'
     assert first[1] == 'PART'
-    assert first[2] == 'Decision'
-    assert first[3] == 'ok'
-    assert first[4] == 0  # sample_index
-    assert first[5] == 100  # x
+    assert first[2] == 'mpl_risk'  # app
+    assert first[3] == 'Decision'  # page
+    assert first[4] == 'ok'
+    assert first[5] == 0  # sample_index
+    assert first[6] == 100  # x
     assert first[-1] == 4.85  # frame_time
 
 
@@ -89,9 +90,9 @@ def test_no_face_sample_exports_empty_coordinates_not_screen_centre():
                 't_perf': 1.5, 'frame_time': 4.85}]
     rows = list(custom_export([make_player(samples)]))
     row = rows[1]
-    assert row[5] is None and row[6] is None, f"x/y should be empty, got {row[5]!r},{row[6]!r}"
-    assert row[9] == 'closed'
-    assert row[10] == 0  # clipped
+    assert row[6] is None and row[7] is None, f"x/y should be empty, got {row[6]!r},{row[7]!r}"
+    assert row[10] == 'closed'
+    assert row[11] == 0  # clipped
 
 
 def test_clipped_is_exported_as_zero_or_one():
@@ -106,7 +107,7 @@ def test_clipped_is_exported_as_zero_or_one():
         {'x': 5, 'y': 10, 'gaze_state': 'open'},  # older data, no flag
     ]
     rows = list(custom_export([make_player(samples)]))
-    assert [r[10] for r in rows[1:]] == [1, 0, 0]
+    assert [r[11] for r in rows[1:]] == [1, 0, 0]
 
 
 def test_skips_player_with_empty_data():
@@ -166,14 +167,14 @@ def test_skips_non_dict_samples_inside_a_valid_list():
     player = make_player([{'x': 1, 'y': 2}, 7, None, {'x': 3, 'y': 4}])
     rows = list(custom_export([player]))
     assert len(rows) == 3, f"expected header + 2 real samples, got {len(rows)}"
-    assert [r[5] for r in rows[1:]] == [1, 3]
+    assert [r[6] for r in rows[1:]] == [1, 3]
 
 
 def test_init_status_propagates_per_row():
     samples = [{'x': 1, 'y': 2, 'gaze_state': 'open'}]
     player = make_player(samples, init_status='init_failed')
     rows = list(custom_export([player]))
-    assert rows[1][3] == 'init_failed'
+    assert rows[1][4] == 'init_failed'
 
 
 if __name__ == '__main__':

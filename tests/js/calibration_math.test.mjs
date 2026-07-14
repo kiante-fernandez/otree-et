@@ -12,7 +12,7 @@ import { dirname, join } from 'node:path';
 
 const require = createRequire(import.meta.url);
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
-const { pctToNorm, gazeError, computeRMSE, rmseFraction } = require(join(ROOT, 'mpl_risk', 'calibration_math.js'));
+const { pctToNorm, gazeError, computeRMSE, rmseFraction } = require(join(ROOT, '_static', 'eyetrack', 'calibration_math.js'));
 
 test('pctToNorm maps the viewport onto WebEyeTrack normalized coordinates', () => {
   assert.equal(pctToNorm(0), -0.5);
