@@ -59,7 +59,10 @@ def grade_player(row: sqlite3.Row, calib: dict | None) -> Grade:
 
     status = row["eyetrack_init_status"]
     print(f"  init_status                : {status}")
-    if status != "ok":
+    if status == "init_pending":
+        g.fail("the page was submitted while the eye-tracking model was still "
+               "loading; no samples could have been collected")
+    elif status != "ok":
         g.fail(f"the tracker did not start (init_status={status!r})")
 
     if row["eyetrack_runtime_error"]:

@@ -7,7 +7,9 @@ What this pins down beyond the mpl_risk smoke test:
   * A second task app runs on the same shared eyetrack app, with no
     eye-tracking code of its own beyond the include and the field block.
   * The payoff cells' on-screen rectangles (data-eyetrack-roi) are captured
-    and posted with the data, so gaze can be assigned to cells offline.
+    AND actually persisted: after submit, the test reads the stored player row
+    from the database and checks the samples, the sample count, and the cell
+    rectangles — in-page state alone cannot catch broken hidden-field wiring.
   * The payoff shown on Results matches the recorded choices and the matrix.
 
 Chromium's synthetic camera has no face, so calibration is skipped through the
@@ -22,9 +24,11 @@ from __future__ import annotations
 
 import json
 import re
+import sqlite3
 import sys
 
 BASE_URL = "http://localhost:8000"
+DB_PATH = "db.sqlite3"
 
 PAYOFFS = {
     # (my_cooperate, other_cooperate) -> my payoff, mirroring matrix_game.C
@@ -59,7 +63,7 @@ def run() -> int:
         context = browser.new_context(permissions=["camera"])
         page = context.new_page()
 
-        print("\n[1/4] Consent and calibration (skipped: no face in the fake camera)")
+        print("\n[1/5] Consent and calibration (skipped: no face in the fake camera)")
         page.goto(f"{BASE_URL}/demo/matrix_game")
         page.wait_for_url(re.compile(r"/SessionStartLinks/"), timeout=15_000)
         match = re.search(r"/InitializeParticipant/[A-Za-z0-9_-]+", page.content())
@@ -84,7 +88,7 @@ def run() -> int:
         page.click("button[type='submit'], .otree-btn-next, button:has-text('Next')")
         page.wait_for_load_state("networkidle")
 
-        print("\n[2/4] The matrix page tracks and records the payoff-cell regions")
+        print("\n[2/5] The matrix page tracks and records the payoff-cell regions")
         page.wait_for_selector("table.payoff-matrix", timeout=15_000)
         page.wait_for_function("() => tracker.initStatus !== 'unknown'", timeout=45_000)
 
@@ -104,13 +108,18 @@ def run() -> int:
         )
         assert_(sane, "every recorded rectangle has positive size")
 
-        print("\n[3/4] Decide (Defect) and submit")
+        print("\n[3/5] Decide (Defect) and submit")
         page.click("input[name='cooperate'][value='False']")
-        page.wait_for_timeout(800)
+        # Samples must actually flow before we submit, or the persistence
+        # assertions below would be vacuous.
+        page.wait_for_function("() => tracker.allSamples.length > 0", timeout=30_000)
+        participant_code = page.evaluate("js_vars.calibration_key").replace(
+            "webeyetrack-calib-", ""
+        )
         page.click("button[type='submit'], .otree-btn-next, button:has-text('Next')")
         page.wait_for_load_state("networkidle")
 
-        print("\n[4/4] Results are consistent with the matrix")
+        print("\n[4/5] Results are consistent with the matrix")
         body = page.inner_text("body")
         assert_("You chose to Defect" in body or "Both of you chose to" in body,
                 "Results names the decisions")
@@ -125,6 +134,34 @@ def run() -> int:
                 f"payoff matches the matrix (expected {expected}, body says {amount and amount.group(1)})")
 
         assert_("drawn at random" in body, "the random opponent draw is disclosed to the participant")
+
+        print("\n[5/5] The gaze data and ROI rectangles were actually persisted")
+        # In-page assertions cannot catch a break in the hidden-field wiring:
+        # the tracker's setter is null-tolerant and the model fields accept
+        # blank, so a renamed input id posts placeholders while every suite
+        # stays green. Read the row oTree stored (prodserver keeps the
+        # database on disk, so this works while the server runs).
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "select m.* from matrix_game_player m join otree_participant p"
+            " on m.participant_id = p.id where p.code = ?",
+            (participant_code,),
+        ).fetchone()
+        assert_(row is not None, f"a matrix_game row was persisted for {participant_code}")
+        if row is not None:
+            assert_(row["eyetrack_init_status"] == "ok",
+                    f"persisted init_status (got {row['eyetrack_init_status']!r})")
+            samples = json.loads(row["eyetrack_gaze_data"] or "[]")
+            assert_(len(samples) > 0 and row["eyetrack_sample_count"] == len(samples),
+                    f"gaze samples persisted ({row['eyetrack_sample_count']} counted, {len(samples)} stored)")
+            rois = json.loads(row["eyetrack_rois"] or "[]")
+            persisted_names = {i["name"] for snap in rois for i in snap.get("items", [])}
+            assert_({"cell-cc", "cell-cd", "cell-dc", "cell-dd"} <= persisted_names,
+                    f"payoff-cell rectangles persisted (got {sorted(persisted_names)[:6]})")
+            assert_(bool(row["cooperate"]) is False and row["no_choice"] == 0,
+                    "the real Defect choice was recorded as a choice, not flagged no_choice")
+        conn.close()
 
         browser.close()
 

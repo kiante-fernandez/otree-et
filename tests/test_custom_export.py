@@ -170,6 +170,24 @@ def test_skips_non_dict_samples_inside_a_valid_list():
     assert [r[6] for r in rows[1:]] == [1, 3]
 
 
+def test_each_app_labels_its_own_rows():
+    """
+    Both task apps delegate to the shared gaze_rows helper, passing their own
+    app/page labels. A copy-paste error there ('mpl_risk' left in matrix_game's
+    wrapper) would mislabel every exported gaze row and surface only during
+    analysis — verified undetectable by the previous suite via mutation.
+    """
+    from matrix_game import custom_export as matrix_export
+
+    samples = [{'x': 1, 'y': 2, 'gaze_state': 'open'}]
+    rows = list(matrix_export([make_player(samples)]))
+    assert rows[1][2] == 'matrix_game', f"app column mislabeled: {rows[1][2]!r}"
+    assert rows[1][3] == 'Decision'
+
+    rows = list(custom_export([make_player(samples)]))
+    assert rows[1][2] == 'mpl_risk'
+
+
 def test_init_status_propagates_per_row():
     samples = [{'x': 1, 'y': 2, 'gaze_state': 'open'}]
     player = make_player(samples, init_status='init_failed')

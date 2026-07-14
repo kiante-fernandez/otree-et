@@ -6,7 +6,10 @@
  *
  *   eyetrack_sample_count  — number of samples recorded
  *   eyetrack_gaze_data     — JSON array of samples
- *   eyetrack_init_status   — 'ok' | 'no_consent' | 'init_failed' | 'unknown'
+ *   eyetrack_init_status   — 'ok' | 'no_consent' | 'init_failed' |
+ *                            'init_pending' (page submitted while the model
+ *                            was still loading) | 'unknown' (the page never
+ *                            ran this code at all)
  *   eyetrack_runtime_error — why initialization failed, if it did
  *
  * Three properties this class is responsible for, each of which was previously
@@ -129,6 +132,11 @@ class SimpleGazeTracker {
       this.updateStatus('no consent', false);
       return false;
     }
+
+    // Cold start takes seconds and the page's Next button is live throughout.
+    // A submit that lands in that window must not be recorded as 'unknown' —
+    // that value is documented to mean this code never ran at all.
+    this.initStatus = 'init_pending';
 
     try {
       await this.waitForWebEyeTrack();
@@ -428,8 +436,14 @@ class SimpleGazeTracker {
       this._onScroll = null;
     }
     if (this._roiTimer) {
+      // A scroll or resize happened within the last 250ms and its re-capture
+      // has not fired yet. Discarding it would freeze the ROI record at the
+      // pre-scroll layout, mis-mapping every sample recorded since — the
+      // common case being a participant who scrolls the Next button into view
+      // and clicks it immediately. Flush the capture instead.
       clearTimeout(this._roiTimer);
       this._roiTimer = null;
+      this.captureRois();
     }
 
     this.writeFormFields();

@@ -62,8 +62,9 @@ any standard oTree command works and nothing depends on a CDN being up.
 | Results | The payoff, and how it was determined. |
 
 To see the data, open <http://localhost:8000/admin>. Each participant has
-their MPL choices plus the eye-tracking fields listed below. The Custom
-export gives one row per gaze sample for analysis.
+their task choices plus the eye-tracking fields listed below. Each task app's
+Custom export gives one row per gaze sample, labeled with the app and page it
+came from.
 
 ## Troubleshooting
 
@@ -190,7 +191,7 @@ On every tracked task page:
 | `eyetrack_rois` | Snapshots of every `data-eyetrack-roi` element's on-screen rectangle (re-captured after each resize or scroll), for mapping gaze to regions offline |
 | `eyetrack_viewport_width`, `eyetrack_viewport_height` | The screen the gaze was measured on. Sample `x`/`y` are pixels and mean nothing without it. |
 | `eyetrack_viewport_changed` | `True` if the window was resized mid-task, so samples before and after are scaled to different viewports |
-| `eyetrack_init_status` | `ok`, `no_consent`, `init_failed`, or `unknown` |
+| `eyetrack_init_status` | `ok`, `no_consent`, `init_failed`, `init_pending` (the page was submitted while the model was still loading), or `unknown` (the page never ran the tracker at all) |
 | `eyetrack_calibration_restored` | Whether this page used the model **this participant** calibrated. `False` means their gaze came from the uncalibrated base model, whatever the RMSE says. |
 | `eyetrack_runtime_error` | First uncaught browser error on the tracked page (empty if none) |
 
@@ -270,6 +271,7 @@ python tests/smoke_e2e.py                    # in another
 python tests/test_calibration_persistence.py # calibration survives the page change
 python tests/test_offline.py                 # works with every CDN blocked
 python tests/test_matrix_e2e.py              # second task on the shared eyetrack app
+python tests/test_battery_e2e.py             # calibrate once, both tasks restore it
 ```
 
 See [`tests/README.md`](tests/README.md) for what each test checks.

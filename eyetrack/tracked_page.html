@@ -75,13 +75,19 @@ const tracker = new SimpleGazeTracker({
 })();
 
 document.addEventListener('DOMContentLoaded', async () => {
-    const initialized = await tracker.init();
-    if (initialized) {
-        tracker.startTracking();
-    }
-
-    // The form submit listener has to drop itself before re-submitting,
-    // otherwise the second submit would be intercepted again (infinite loop).
+    // Intercept submits BEFORE starting the tracker. Model load takes ~5s cold
+    // (up to ~35s when it is going to fail), the Next button is live the whole
+    // time, and an unintercepted submit posts the hidden inputs' defaults --
+    // recording the participant as 'unknown', which is documented to mean the
+    // page never ran at all.
+    //
+    // The listener has to drop itself before re-submitting, otherwise the
+    // second submit would be intercepted again (infinite loop). It is also
+    // registered through jQuery when present: oTree's timeout auto-submit
+    // calls jQuery's .submit(), which runs jQuery-bound handlers and then the
+    // native form.submit() METHOD -- which never fires a DOM submit event, so
+    // an addEventListener-only interceptor would be bypassed and the page's
+    // gaze data silently dropped at timeout.
     const form = document.querySelector('form');
     if (form) {
         let submitting = false;
@@ -91,9 +97,16 @@ document.addEventListener('DOMContentLoaded', async () => {
             submitting = true;
             await tracker.stopTracking();
             form.removeEventListener('submit', onSubmit);
+            if (window.jQuery) window.jQuery(form).off('submit', onSubmit);
             form.submit();
         }
         form.addEventListener('submit', onSubmit);
+        if (window.jQuery) window.jQuery(form).on('submit', onSubmit);
+    }
+
+    const initialized = await tracker.init();
+    if (initialized) {
+        tracker.startTracking();
     }
 });
 

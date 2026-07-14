@@ -25,8 +25,9 @@ matter for data quality and that a browser test cannot cheaply check:
 
 `calibration_math.test.mjs` covers the calibration geometry and the RMSE.
 
-Seven of the ten `gaze_tracker` tests fail against the version of the tracker
-that shipped before them.
+The suite grew alongside the tracker; the original core of it was written
+against a tracker that failed most of these tests, and each later test was
+checked to fail against the code before its fix.
 
 ---
 
@@ -133,12 +134,15 @@ no eye-tracking code of its own beyond the include and the field block. Asserts
 the payoff cells' `data-eyetrack-roi` rectangles are captured and posted, and
 that the Results payoff matches the recorded choices and the matrix.
 
-**Known gaps.** No browser test walks the `task_battery` config end to end;
-the calibrate-once-track-everywhere mechanism it demonstrates is the same
-participant-keyed save/restore that `test_calibration_persistence.py` pins
-down, so battery coverage would only re-test the page sequence.
+## 6. Task battery end-to-end — `test_battery_e2e.py`
 
-Chromium's synthetic camera shows a test pattern with no face,
+Walks the `task_battery` config: consent, one calibration save, then BOTH
+tasks. Asserts each task page reports `calibrationRestored === true` under the
+same participant key — the calibrate-once-track-everywhere claim, exercised
+across two real app boundaries — and that neither page silently fell back to
+the base model.
+
+**Known gap.** Chromium's synthetic camera shows a test pattern with no face,
 so the tracker returns `gaze_state: 'closed'` for every sample and `calibrate()`
 has nothing to adapt to. The browser suites therefore verify the data path, the
 refusal behaviour, and the persistence mechanism — but not calibration

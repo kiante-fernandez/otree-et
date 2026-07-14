@@ -65,8 +65,14 @@ class Player(BasePlayer):
     )
     # The other player's decision, drawn at submission time (never shown while
     # the participant is deciding). In a real study, fill this from
-    # pre-recorded human decisions instead.
-    opponent_cooperate = models.BooleanField()
+    # pre-recorded human decisions instead. Stays empty when no choice was made.
+    opponent_cooperate = models.BooleanField(blank=True)
+    # True when the page was auto-submitted (admin force-advance or a timeout)
+    # rather than answered. oTree fills an unanswered BooleanField with False,
+    # which here is a valid choice -- Defect -- so without this flag a
+    # fabricated decision would be indistinguishable from a real one, and the
+    # participant would be paid for a gamble they never took.
+    no_choice = models.BooleanField(initial=False)
 
     # --- eye tracking (see eyetrack_shared.py for what each field means) ---
     eyetrack_sample_count = models.IntegerField(initial=0)
@@ -101,7 +107,14 @@ def draw_opponent():
     return random.random() < 0.5
 
 
-def set_payoff(player: Player):
+def set_payoff(player: Player, timeout_happened=False):
+    if timeout_happened:
+        # The page was auto-submitted; the recorded `cooperate` value is
+        # oTree's filler, not a decision. Record that and pay nothing, rather
+        # than paying out a lottery over a choice that was never made.
+        player.no_choice = True
+        player.payoff = cu(0)
+        return
     player.opponent_cooperate = draw_opponent()
     player.payoff = payoff_matrix()[(player.cooperate, player.opponent_cooperate)]
 
@@ -116,13 +129,17 @@ class Decision(Page):
 
     @staticmethod
     def before_next_page(player: Player, timeout_happened):
-        set_payoff(player)
+        set_payoff(player, timeout_happened)
 
 
 class Results(Page):
     @staticmethod
     def vars_for_template(player: Player):
+        if player.no_choice:
+            return dict(no_choice=True, my_decision='', opponent_decision='',
+                        same_choice=False)
         return dict(
+            no_choice=False,
             my_decision='Cooperate' if player.cooperate else 'Defect',
             opponent_decision='Cooperate' if player.opponent_cooperate else 'Defect',
             same_choice=player.cooperate == player.opponent_cooperate,

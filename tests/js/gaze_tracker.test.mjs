@@ -282,6 +282,49 @@ test('a scroll re-captures the ROIs once movement settles', async () => {
   assert.equal(tracker.roiSnapshots[1].items[0].y, 50);
 });
 
+test('a submit within the scroll-settle window still records the final layout', async () => {
+  // The re-capture is a 250ms trailing debounce. A participant who scrolls the
+  // Next button into view and clicks it immediately submits inside that window;
+  // discarding the pending capture would freeze the ROI record at the
+  // pre-scroll layout and mis-map every sample recorded since the scroll.
+  const roi = makeRoiElement('cell-cc', { x: 100, y: 200, w: 150, h: 60 });
+  const dom = makeDom({ elementIds: FIELD_IDS, roiElements: [roi] });
+  const SimpleGazeTracker = loadTracker(dom);
+  const tracker = new SimpleGazeTracker({});
+  tracker.isInitialized = true;
+  tracker.startTracking();
+
+  roi.rect.y = 50;      // the page scrolled
+  tracker._onScroll();  // debounce timer starts
+  await tracker.stopTracking();  // submit lands before the 250ms settle
+
+  assert.equal(tracker.roiSnapshots.length, 2, 'the pending capture is flushed, not discarded');
+  assert.equal(tracker.roiSnapshots[1].items[0].y, 50, 'the flushed snapshot has the submit-time layout');
+
+  const written = JSON.parse(dom.elements.get('eyetrack_rois').value);
+  assert.equal(written.length, 2, 'both snapshots reach the form field');
+});
+
+test('a submit while the model is still loading is recorded as init_pending, not unknown', async () => {
+  // Cold start takes seconds and the Next button is live throughout. 'unknown'
+  // is documented to mean the page never ran this code at all; a submit that
+  // merely raced the model load must be distinguishable from that.
+  const { tracker, dom } = newTracker();
+
+  let releaseInit;
+  tracker.waitForWebEyeTrack = () => new Promise((resolve) => { releaseInit = resolve; });
+
+  const pending = tracker.init();          // in flight, never resolves yet
+  await new Promise((r) => setImmediate(r));
+
+  assert.equal(tracker.initStatus, 'init_pending');
+  await tracker.stopTracking();            // the participant submits mid-load
+  assert.equal(dom.elements.get('eyetrack_init_status').value, 'init_pending');
+
+  releaseInit();                            // avoid a dangling promise
+  await pending.catch(() => {});
+});
+
 test('destroy() detaches the resize and scroll listeners', () => {
   // The calibration page's Recalibrate button destroys the tracker and builds
   // a new one on a page that stays alive; a listener left behind would keep
