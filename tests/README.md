@@ -142,6 +142,13 @@ same participant key — the calibrate-once-track-everywhere claim, exercised
 across two real app boundaries — and that neither page silently fell back to
 the base model.
 
+## 7. Scanpath visualizer — `test_visualizer.py`
+
+Drives `tools/gaze_visualizer.html` in headless Chromium against a real
+`all_apps_wide` export (fetched from a running server, or pass a CSV path):
+participants and tasks discovered, the scanpath actually drawn to canvas, the
+ROI dwell table populated, playback advancing, scrubbing redrawing.
+
 **Known gap.** Chromium's synthetic camera shows a test pattern with no face,
 so the tracker returns `gaze_state: 'closed'` for every sample and `calibrate()`
 has nothing to adapt to. The browser suites therefore verify the data path, the

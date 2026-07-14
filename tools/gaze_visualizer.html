@@ -1,0 +1,656 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Gaze Scanpath Visualizer</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #fafafa; color: #333; min-height: 100vh;
+    padding: 32px 20px; line-height: 1.5;
+  }
+  .container { max-width: 1200px; margin: 0 auto; }
+  h1 { font-size: 1.4rem; font-weight: 500; color: #1a1a1a; margin-bottom: 6px; }
+  .subtitle { color: #666; font-size: 0.95rem; margin-bottom: 24px; }
+
+  .file-upload {
+    background: #fff; border: 2px dashed #ddd; border-radius: 4px;
+    padding: 34px; text-align: center; margin-bottom: 18px;
+    cursor: pointer; transition: border-color 0.2s;
+  }
+  .file-upload:hover, .file-upload.dragover { border-color: #1a1a1a; }
+  .file-upload input { display: none; }
+
+  .nav-bar {
+    display: flex; gap: 10px; align-items: center; margin-bottom: 12px;
+    padding: 10px 14px; background: #fff; border: 1px solid #ddd; border-radius: 4px;
+    flex-wrap: wrap;
+  }
+  .nav-label { font-size: 0.75rem; color: #666; text-transform: uppercase; letter-spacing: 0.5px; min-width: 84px; }
+  select, button, input[type="number"] {
+    padding: 7px 12px; border: 1px solid #ddd; border-radius: 4px;
+    background: #fff; color: #333; font-size: 0.9rem;
+  }
+  select:focus { outline: none; border-color: #1a1a1a; }
+  button { cursor: pointer; background: #1a1a1a; color: #fff; border: none; }
+  button:hover { background: #333; }
+  button:disabled { background: #ccc; cursor: not-allowed; }
+  button.quiet { background: #fff; color: #333; border: 1px solid #ddd; }
+  button.quiet:hover { background: #f0f0f0; }
+  .counter { color: #666; font-size: 0.85rem; }
+
+  .info-bar {
+    padding: 9px 14px; background: #fff; border: 1px solid #ddd; border-radius: 4px;
+    margin-bottom: 14px; font-size: 0.85rem; color: #666;
+  }
+  .info-bar strong { color: #1a1a1a; font-weight: 600; }
+  .flag-bad { color: #a4262c; font-weight: 600; }
+
+  .playback { display: flex; gap: 10px; align-items: center; margin-bottom: 14px; flex-wrap: wrap; }
+  #timeline {
+    flex: 1; min-width: 240px; height: 6px; -webkit-appearance: none;
+    background: #ddd; border-radius: 3px; cursor: pointer;
+  }
+  #timeline::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 14px; height: 14px;
+    background: #1a1a1a; border-radius: 50%; cursor: pointer;
+  }
+  .time-display { font-size: 0.85rem; color: #666; min-width: 130px; font-variant-numeric: tabular-nums; }
+
+  .layout { display: flex; gap: 16px; align-items: flex-start; }
+  .canvas-wrap { flex: 1; min-width: 0; }
+  .canvas-container { position: relative; background: #fff; border-radius: 4px; border: 1px solid #ddd; }
+  canvas { display: block; width: 100%; height: auto; border-radius: 4px; }
+
+  .side { width: 250px; flex-shrink: 0; }
+  .panel {
+    background: #fff; border: 1px solid #ddd; border-radius: 4px;
+    padding: 12px 14px; margin-bottom: 14px; font-size: 0.85rem;
+  }
+  .panel h2 { font-size: 0.75rem; color: #666; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; margin-bottom: 8px; }
+  .stat-row { display: flex; justify-content: space-between; padding: 2px 0; color: #666; }
+  .stat-row b { color: #1a1a1a; font-weight: 600; font-variant-numeric: tabular-nums; }
+  table.dwell { width: 100%; border-collapse: collapse; }
+  table.dwell td { padding: 3px 0; color: #666; font-variant-numeric: tabular-nums; }
+  table.dwell td:last-child { text-align: right; color: #1a1a1a; font-weight: 600; }
+  table.dwell tr.active td { color: #1a1a1a; }
+  table.dwell tr.active td:first-child { font-weight: 600; }
+  .dwell-bar { height: 4px; background: #3b6fc4; border-radius: 2px; margin-top: 1px; }
+
+  .legend { display: flex; gap: 16px; margin: 10px 0 0; font-size: 0.8rem; color: #666; flex-wrap: wrap; }
+  .legend-item { display: flex; align-items: center; gap: 6px; }
+  .swatch { width: 10px; height: 10px; border-radius: 50%; }
+  .swatch.ring { background: #fff; border: 2px solid #6c757d; }
+  .swatch.rect { border-radius: 2px; background: rgba(59,111,196,0.12); border: 1px solid #3b6fc4; }
+
+  .controls-inline { display: flex; gap: 14px; align-items: center; font-size: 0.85rem; color: #666; flex-wrap: wrap; }
+  .controls-inline label { display: flex; gap: 6px; align-items: center; }
+  .hidden { display: none !important; }
+  kbd {
+    background: #f0f0f0; border: 1px solid #ddd; border-radius: 3px;
+    padding: 0 5px; font-size: 0.75rem; font-family: inherit; color: #333;
+  }
+  .hint { font-size: 0.8rem; color: #999; margin-top: 10px; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>Gaze Scanpath Visualizer</h1>
+  <p class="subtitle">
+    Replay the scan path from this project's downloaded task data. Feed it the
+    wide CSV from oTree's Data page (all_apps_wide-&hellip;.csv); it finds every
+    participant and every tracked task, and overlays the recorded regions of
+    interest so you can watch where the gaze lands.
+  </p>
+
+  <div class="file-upload" id="dropZone">
+    <input type="file" id="csvFile" accept=".csv">
+    <p style="font-size:1rem;color:#1a1a1a;margin-bottom:6px;">Drop the all_apps_wide CSV here, or click to choose it</p>
+    <p style="color:#666;font-size:0.85rem;">Nothing leaves your machine; the file is read locally in this page.</p>
+  </div>
+
+  <div id="viewer" class="hidden">
+    <div class="nav-bar">
+      <span class="nav-label">Participant</span>
+      <button class="quiet" id="prevPart">&#8592;</button>
+      <select id="participantSelect"></select>
+      <button class="quiet" id="nextPart">&#8594;</button>
+      <span class="counter" id="partCounter"></span>
+      <span class="nav-label" style="margin-left:18px;">Task</span>
+      <button class="quiet" id="prevApp">&#8592;</button>
+      <select id="appSelect"></select>
+      <button class="quiet" id="nextApp">&#8594;</button>
+      <span class="counter" id="appCounter"></span>
+    </div>
+
+    <div class="info-bar" id="infoBar"></div>
+
+    <div class="playback">
+      <button id="playBtn">Play</button>
+      <input type="range" id="timeline" min="0" max="1000" value="1000">
+      <span class="time-display" id="timeDisplay">&ndash;</span>
+      <div class="controls-inline">
+        <label>Speed
+          <select id="speed">
+            <option value="0.25">0.25x</option>
+            <option value="0.5">0.5x</option>
+            <option value="1" selected>1x</option>
+            <option value="2">2x</option>
+            <option value="4">4x</option>
+          </select>
+        </label>
+        <label><input type="checkbox" id="showRois" checked> Regions</label>
+        <label><input type="checkbox" id="showTrail" checked> Trail</label>
+        <label>Point <input type="number" id="pointSize" value="4" min="2" max="12" style="width:58px;"></label>
+      </div>
+    </div>
+
+    <div class="layout">
+      <div class="canvas-wrap">
+        <div class="canvas-container"><canvas id="gazeCanvas"></canvas></div>
+        <div class="legend">
+          <div class="legend-item"><div class="swatch" style="background:#343a40;"></div>early</div>
+          <div class="legend-item"><div class="swatch" style="background:#adb5bd;"></div>late</div>
+          <div class="legend-item"><div class="swatch" style="background:#e63946;"></div>current gaze</div>
+          <div class="legend-item"><div class="swatch ring"></div>clipped at screen edge</div>
+          <div class="legend-item"><div class="swatch rect"></div>region of interest</div>
+        </div>
+        <p class="hint">
+          <kbd>space</kbd> play / pause &nbsp; <kbd>&#8592;</kbd><kbd>&#8594;</kbd> task &nbsp;
+          <kbd>shift</kbd>+<kbd>&#8592;</kbd><kbd>&#8594;</kbd> participant &nbsp;
+          drag the timeline to scrub
+        </p>
+      </div>
+      <div class="side">
+        <div class="panel">
+          <h2>Recording</h2>
+          <div id="statsPanel"></div>
+        </div>
+        <div class="panel">
+          <h2>Dwell by region <span id="dwellNote" style="text-transform:none;font-weight:400;"></span></h2>
+          <table class="dwell"><tbody id="dwellBody"></tbody></table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+'use strict';
+
+/* ---------------- CSV parsing (quotes, embedded commas and newlines) ------ */
+
+function parseCsv(text) {
+  const rows = [];
+  let row = [], field = '', inQuotes = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inQuotes) {
+      if (c === '"') {
+        if (text[i + 1] === '"') { field += '"'; i++; }
+        else inQuotes = false;
+      } else field += c;
+    } else if (c === '"') {
+      inQuotes = true;
+    } else if (c === ',') {
+      row.push(field); field = '';
+    } else if (c === '\n' || c === '\r') {
+      if (c === '\r' && text[i + 1] === '\n') i++;
+      row.push(field); field = '';
+      if (row.length > 1 || row[0] !== '') rows.push(row);
+      row = [];
+    } else field += c;
+  }
+  if (field !== '' || row.length) { row.push(field); rows.push(row); }
+  return rows;
+}
+
+/* ---------------- Data model ---------------------------------------------- */
+
+// records[participantIndex] = { code, calibration: {...}, apps: { app: record } }
+// record = { samples, rois, vw, vh, status, restored, note }
+let participants = [];
+let appNames = [];
+let pIdx = 0, aIdx = 0;
+
+// playback state
+let current = null;   // the active record, enriched
+let playT = 0;        // current playhead, ms in t_perf terms
+let playing = false;
+let rafId = null;
+let lastFrameWall = 0;
+
+const ACCENT = '#e63946';
+const ROI_STROKE = '#3b6fc4';
+const ROI_FILL = 'rgba(59, 111, 196, 0.07)';
+const TRAIL_DARK = [52, 58, 64], TRAIL_LIGHT = [173, 181, 189];
+
+function pick(rowObj, app, field) {
+  return rowObj[`${app}.1.player.${field}`];
+}
+
+function buildRecords(header, rows) {
+  const apps = [];
+  header.forEach((h) => {
+    const m = h.match(/^(\w+)\.1\.player\.eyetrack_gaze_data$/);
+    if (m) apps.push(m[1]);
+  });
+  if (!apps.length) return null;
+
+  const out = [];
+  for (const raw of rows) {
+    const obj = {};
+    header.forEach((h, i) => { obj[h] = raw[i] ?? ''; });
+
+    const rec = {
+      code: obj['participant.code'] || `row ${out.length + 1}`,
+      calibration: {
+        rmse: parseFloat(obj['eyetrack.1.player.eyetrack_calibration_rmse']) || null,
+        fraction: parseFloat(obj['eyetrack.1.player.eyetrack_calibration_rmse_fraction']) || null,
+        consent: obj['eyetrack.1.player.eyetrack_consent'],
+      },
+      apps: {},
+    };
+
+    let any = false;
+    for (const app of apps) {
+      const rawGaze = pick(obj, app, 'eyetrack_gaze_data');
+      if (rawGaze === undefined) continue;
+      const entry = { samples: [], rois: [], vw: 0, vh: 0, status: '', restored: false, note: '' };
+      entry.status = pick(obj, app, 'eyetrack_init_status') || '';
+      entry.restored = pick(obj, app, 'eyetrack_calibration_restored') === '1';
+      entry.vw = parseInt(pick(obj, app, 'eyetrack_viewport_width'), 10) || 0;
+      entry.vh = parseInt(pick(obj, app, 'eyetrack_viewport_height'), 10) || 0;
+      try {
+        const parsed = JSON.parse(rawGaze || '[]');
+        if (Array.isArray(parsed)) entry.samples = parsed.filter((s) => s && typeof s === 'object');
+        else entry.note = 'gaze data is not a list';
+      } catch { entry.note = 'gaze data did not parse'; }
+      try {
+        const r = JSON.parse(pick(obj, app, 'eyetrack_rois') || '[]');
+        if (Array.isArray(r)) entry.rois = r;
+      } catch { /* older exports have no ROI column */ }
+      if (entry.samples.length) any = true;
+      rec.apps[app] = entry;
+    }
+    if (any) out.push(rec);
+  }
+  return { apps, records: out };
+}
+
+/* Enrich one record for display: clock, viewport, per-sample ROI assignment. */
+function prepare(entry) {
+  const samples = entry.samples
+    .map((s) => ({
+      t: typeof s.t_perf === 'number' ? s.t_perf : (typeof s.timestamp === 'number' ? s.timestamp : null),
+      x: typeof s.x === 'number' ? s.x : null,
+      y: typeof s.y === 'number' ? s.y : null,
+      nx: typeof s.norm_x === 'number' ? s.norm_x : null,
+      ny: typeof s.norm_y === 'number' ? s.norm_y : null,
+      open: s.gaze_state === 'open',
+      clipped: !!s.clipped,
+    }))
+    .filter((s) => s.t !== null)
+    .sort((a, b) => a.t - b.t);
+
+  // Viewport: recorded fields, else derived from norm coordinates (x = (nx+0.5)*W),
+  // else the data's own bounds. Older exports lack the viewport columns.
+  let vw = entry.vw, vh = entry.vh, viewportNote = '';
+  if (!vw || !vh) {
+    const est = (get, norm) => {
+      const vals = samples
+        .filter((s) => s.open && get(s) !== null && norm(s) !== null && Math.abs(norm(s) + 0.5) > 0.05)
+        .map((s) => get(s) / (norm(s) + 0.5))
+        .sort((a, b) => a - b);
+      return vals.length ? vals[Math.floor(vals.length / 2)] : 0;
+    };
+    vw = Math.round(est((s) => s.x, (s) => s.nx));
+    vh = Math.round(est((s) => s.y, (s) => s.ny));
+    viewportNote = 'estimated';
+  }
+  if (!vw || !vh) {
+    const xs = samples.filter((s) => s.x !== null).map((s) => s.x);
+    const ys = samples.filter((s) => s.y !== null).map((s) => s.y);
+    vw = xs.length ? Math.max(...xs) + 40 : 1280;
+    vh = ys.length ? Math.max(...ys) + 40 : 720;
+    viewportNote = 'from data bounds';
+  }
+
+  const rois = (entry.rois || [])
+    .filter((snap) => snap && Array.isArray(snap.items))
+    .sort((a, b) => (a.t_perf || 0) - (b.t_perf || 0));
+
+  // The layout can move (scroll, resize); each sample is matched against the
+  // ROI snapshot that was current at its own moment.
+  const snapAt = (t) => {
+    let s = rois[0] || null;
+    for (const snap of rois) { if ((snap.t_perf || 0) <= t) s = snap; else break; }
+    return s;
+  };
+  const roiNames = [...new Set(rois.flatMap((snap) => snap.items.map((i) => i.name)))];
+  for (const s of samples) {
+    s.roi = null;
+    if (!s.open || s.x === null) continue;
+    const snap = snapAt(s.t);
+    if (!snap) continue;
+    // Smallest hit wins, so a payoff span inside a cell beats the cell.
+    let best = null;
+    for (const it of snap.items) {
+      if (s.x >= it.x && s.x <= it.x + it.w && s.y >= it.y && s.y <= it.y + it.h) {
+        if (!best || it.w * it.h < best.w * best.h) best = it;
+      }
+    }
+    if (best) s.roi = best.name;
+  }
+
+  const t0 = samples.length ? samples[0].t : 0;
+  const t1 = samples.length ? samples[samples.length - 1].t : 1;
+  return { ...entry, samples, rois, roiNames, snapAt, vw, vh, viewportNote, t0, t1 };
+}
+
+/* ---------------- Navigation ---------------------------------------------- */
+
+const $ = (id) => document.getElementById(id);
+
+function populateSelectors() {
+  $('participantSelect').innerHTML = participants
+    .map((r, i) => `<option value="${i}">${r.code}</option>`).join('');
+  $('appSelect').innerHTML = appNames
+    .map((a, i) => `<option value="${i}">${a}</option>`).join('');
+}
+
+function load() {
+  const rec = participants[pIdx];
+  const app = appNames[aIdx];
+  $('participantSelect').value = pIdx;
+  $('appSelect').value = aIdx;
+  $('partCounter').textContent = `(${pIdx + 1} of ${participants.length})`;
+  $('appCounter').textContent = `(${aIdx + 1} of ${appNames.length})`;
+  $('prevPart').disabled = pIdx === 0;
+  $('nextPart').disabled = pIdx === participants.length - 1;
+  $('prevApp').disabled = aIdx === 0;
+  $('nextApp').disabled = aIdx === appNames.length - 1;
+
+  stopPlayback();
+  const entry = rec.apps[app];
+  current = entry && entry.samples.length ? prepare(entry) : null;
+
+  const bar = [];
+  bar.push(`<strong>${rec.code}</strong> &middot; ${app}`);
+  if (current) {
+    bar.push(`init <strong>${current.status || '?'}</strong>`);
+    bar.push(current.restored
+      ? 'calibration <strong>restored</strong>'
+      : '<span class="flag-bad">calibration NOT restored (base model)</span>');
+    const c = rec.calibration;
+    if (c.rmse) {
+      const pct = c.fraction ? ` (${(c.fraction * 100).toFixed(1)}% of screen)` : '';
+      bar.push(`calibration error <strong>${c.rmse.toFixed(0)} px</strong>${pct}`);
+    } else {
+      bar.push('<span class="flag-bad">calibration skipped</span>');
+    }
+  } else {
+    bar.push('<span class="flag-bad">no gaze data for this task</span>');
+  }
+  $('infoBar').innerHTML = bar.join(' &nbsp;|&nbsp; ');
+
+  if (!current) {
+    const canvas = $('gazeCanvas');
+    canvas.width = 1160; canvas.height = 400;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#999'; ctx.font = '14px sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText('No samples recorded for this participant on this task.', canvas.width / 2, canvas.height / 2);
+    $('statsPanel').innerHTML = '';
+    $('dwellBody').innerHTML = '';
+    $('timeDisplay').textContent = '–';
+    return;
+  }
+
+  playT = current.t1;               // land on the full picture
+  $('timeline').value = 1000;
+  renderStats();
+  draw();
+}
+
+function renderStats() {
+  const s = current.samples;
+  const open = s.filter((x) => x.open).length;
+  const clipped = s.filter((x) => x.clipped).length;
+  const dur = (current.t1 - current.t0) / 1000;
+  const hz = dur > 0 ? (s.length / dur) : 0;
+  const vp = `${current.vw} × ${current.vh}${current.viewportNote ? ' (' + current.viewportNote + ')' : ''}`;
+  $('statsPanel').innerHTML = [
+    ['Samples', `${s.length}`],
+    ['Face visible', `${s.length ? Math.round(100 * open / s.length) : 0}%`],
+    ['Duration', `${dur.toFixed(1)} s`],
+    ['Rate', `${hz.toFixed(1)} Hz`],
+    ['Clipped', `${clipped}`],
+    ['Viewport', vp],
+    ['ROI snapshots', `${current.rois.length}`],
+  ].map(([k, v]) => `<div class="stat-row"><span>${k}</span><b>${v}</b></div>`).join('');
+}
+
+/* ---------------- Drawing -------------------------------------------------- */
+
+function draw() {
+  if (!current) return;
+  const canvas = $('gazeCanvas');
+  const ctx = canvas.getContext('2d');
+  const W = 1160;
+  const H = Math.max(220, Math.round(W * current.vh / current.vw));
+  canvas.width = W; canvas.height = H;
+  const k = W / current.vw;
+
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, W, H);
+
+  // recessive screen grid, 100 viewport px
+  ctx.strokeStyle = '#f2f2f2'; ctx.lineWidth = 1;
+  for (let gx = 100; gx < current.vw; gx += 100) {
+    ctx.beginPath(); ctx.moveTo(gx * k, 0); ctx.lineTo(gx * k, H); ctx.stroke();
+  }
+  for (let gy = 100; gy < current.vh; gy += 100) {
+    ctx.beginPath(); ctx.moveTo(0, gy * k); ctx.lineTo(W, gy * k); ctx.stroke();
+  }
+
+  // ROI rectangles from the snapshot current at the playhead
+  const dwell = new Map();
+  let activeRoi = null;
+
+  const visible = current.samples.filter((s) => s.t <= playT);
+  const last = visible[visible.length - 1] || null;
+
+  if ($('showRois').checked && current.rois.length) {
+    const snap = current.snapAt(playT);
+    if (snap) {
+      ctx.font = '10px sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+      for (const it of snap.items) {
+        ctx.fillStyle = ROI_FILL;
+        ctx.strokeStyle = ROI_STROKE;
+        ctx.lineWidth = 1;
+        ctx.fillRect(it.x * k, it.y * k, it.w * k, it.h * k);
+        ctx.strokeRect(it.x * k, it.y * k, it.w * k, it.h * k);
+        ctx.fillStyle = '#8aa4c8';
+        ctx.fillText(it.name, it.x * k + 3, it.y * k + 2);
+      }
+    }
+  }
+
+  // trail and points, gray ramp over time
+  const span = Math.max(1, current.t1 - current.t0);
+  const pointSize = parseInt($('pointSize').value, 10) || 4;
+
+  if ($('showTrail').checked) {
+    ctx.lineWidth = 1.25;
+    for (let i = 1; i < visible.length; i++) {
+      const a = visible[i - 1], b = visible[i];
+      if (a.x === null || b.x === null) continue;   // a no-face gap breaks the path
+      const p = (b.t - current.t0) / span;
+      const g = TRAIL_DARK.map((d, j) => Math.round(d + (TRAIL_LIGHT[j] - d) * p));
+      ctx.strokeStyle = `rgba(${g[0]},${g[1]},${g[2]},0.55)`;
+      ctx.beginPath();
+      ctx.moveTo(a.x * k, a.y * k);
+      ctx.lineTo(b.x * k, b.y * k);
+      ctx.stroke();
+    }
+  }
+
+  for (const s of visible) {
+    if (s.roi) dwell.set(s.roi, (dwell.get(s.roi) || 0) + 1);
+    if (s.x === null) continue;
+    const p = (s.t - current.t0) / span;
+    const g = TRAIL_DARK.map((d, j) => Math.round(d + (TRAIL_LIGHT[j] - d) * p));
+    ctx.beginPath();
+    if (s.clipped) {
+      ctx.strokeStyle = `rgb(${g[0]},${g[1]},${g[2]})`;
+      ctx.lineWidth = 1.5;
+      ctx.arc(s.x * k, s.y * k, pointSize / 2 + 1.5, 0, Math.PI * 2);
+      ctx.stroke();
+    } else {
+      ctx.fillStyle = `rgb(${g[0]},${g[1]},${g[2]})`;
+      ctx.arc(s.x * k, s.y * k, pointSize / 2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  // the playhead: current gaze, or an honest face-lost note
+  if (last) {
+    activeRoi = last.roi;
+    if (last.x !== null) {
+      ctx.beginPath();
+      ctx.fillStyle = 'rgba(230, 57, 70, 0.18)';
+      ctx.arc(last.x * k, last.y * k, pointSize + 7, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.fillStyle = ACCENT;
+      ctx.arc(last.x * k, last.y * k, pointSize / 2 + 2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5; ctx.stroke();
+    } else {
+      ctx.fillStyle = '#a4262c'; ctx.font = '12px sans-serif';
+      ctx.textAlign = 'right'; ctx.textBaseline = 'top';
+      ctx.fillText('face not visible', W - 10, 8);
+    }
+  }
+
+  // time display and dwell table
+  $('timeDisplay').textContent =
+    `${((playT - current.t0) / 1000).toFixed(2)}s / ${((current.t1 - current.t0) / 1000).toFixed(2)}s`;
+
+  const totalOpen = visible.filter((s) => s.open).length || 1;
+  const rows = current.roiNames
+    .map((name) => ({ name, n: dwell.get(name) || 0 }))
+    .sort((a, b) => b.n - a.n);
+  const maxN = rows.length ? Math.max(1, rows[0].n) : 1;
+  $('dwellNote').textContent = current.roiNames.length ? '' : '(none recorded)';
+  $('dwellBody').innerHTML = rows.map((r) => `
+    <tr class="${r.name === activeRoi ? 'active' : ''}">
+      <td>${r.name}<div class="dwell-bar" style="width:${Math.round(100 * r.n / maxN)}%"></div></td>
+      <td>${r.n}<span style="color:#999;font-weight:400;"> (${Math.round(100 * r.n / totalOpen)}%)</span></td>
+    </tr>`).join('');
+}
+
+/* ---------------- Playback ------------------------------------------------- */
+
+function stopPlayback() {
+  playing = false;
+  if (rafId) cancelAnimationFrame(rafId);
+  $('playBtn').textContent = 'Play';
+}
+
+function togglePlayback() {
+  if (!current) return;
+  playing = !playing;
+  $('playBtn').textContent = playing ? 'Pause' : 'Play';
+  if (playing) {
+    if (playT >= current.t1) playT = current.t0;   // replay from the start
+    lastFrameWall = performance.now();
+    rafId = requestAnimationFrame(step);
+  } else if (rafId) cancelAnimationFrame(rafId);
+}
+
+function step(now) {
+  if (!playing || !current) return;
+  const speed = parseFloat($('speed').value) || 1;
+  playT += (now - lastFrameWall) * speed;   // time-true: gaps play as gaps
+  lastFrameWall = now;
+  if (playT >= current.t1) {
+    playT = current.t1;
+    stopPlayback();
+  }
+  $('timeline').value = Math.round(1000 * (playT - current.t0) / Math.max(1, current.t1 - current.t0));
+  draw();
+  if (playing) rafId = requestAnimationFrame(step);
+}
+
+/* ---------------- Wiring --------------------------------------------------- */
+
+function handleFile(file) {
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    const rows = parseCsv(e.target.result);
+    if (rows.length < 2) { alert('That file has no data rows.'); return; }
+    const built = buildRecords(rows[0], rows.slice(1));
+    if (!built) {
+      alert('No eyetrack_gaze_data columns found. This expects the all_apps_wide CSV from the oTree Data page.');
+      return;
+    }
+    if (!built.records.length) {
+      alert('The file parsed, but no participant has any gaze samples yet.');
+      return;
+    }
+    appNames = built.apps;
+    participants = built.records;
+    pIdx = 0; aIdx = 0;
+    $('dropZone').innerHTML = `<p style="color:#1a1a1a;">Loaded: ${file.name}</p>
+      <p style="color:#666;font-size:0.85rem;">${participants.length} participant(s) with gaze data &middot; tasks: ${appNames.join(', ')}</p>`;
+    $('viewer').classList.remove('hidden');
+    populateSelectors();
+    load();
+  };
+  reader.readAsText(file);
+}
+
+const dropZone = $('dropZone');
+dropZone.addEventListener('click', () => $('csvFile').click());
+$('csvFile').addEventListener('change', (e) => e.target.files[0] && handleFile(e.target.files[0]));
+dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('dragover'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+dropZone.addEventListener('drop', (e) => {
+  e.preventDefault(); dropZone.classList.remove('dragover');
+  const f = e.dataTransfer.files[0];
+  if (f) handleFile(f);
+});
+
+$('participantSelect').addEventListener('change', (e) => { pIdx = +e.target.value; load(); });
+$('appSelect').addEventListener('change', (e) => { aIdx = +e.target.value; load(); });
+$('prevPart').addEventListener('click', () => { if (pIdx > 0) { pIdx--; load(); } });
+$('nextPart').addEventListener('click', () => { if (pIdx < participants.length - 1) { pIdx++; load(); } });
+$('prevApp').addEventListener('click', () => { if (aIdx > 0) { aIdx--; load(); } });
+$('nextApp').addEventListener('click', () => { if (aIdx < appNames.length - 1) { aIdx++; load(); } });
+$('playBtn').addEventListener('click', togglePlayback);
+$('timeline').addEventListener('input', function () {
+  if (!current) return;
+  stopPlayback();
+  playT = current.t0 + (current.t1 - current.t0) * (+this.value / 1000);
+  draw();
+});
+['showRois', 'showTrail', 'pointSize'].forEach((id) => $(id).addEventListener('input', draw));
+
+document.addEventListener('keydown', (e) => {
+  if (!participants.length) return;
+  if (e.target.tagName === 'SELECT' || e.target.tagName === 'INPUT') return;
+  if (e.key === ' ') { e.preventDefault(); togglePlayback(); }
+  else if (e.key === 'ArrowLeft') {
+    if (e.shiftKey) { if (pIdx > 0) { pIdx--; load(); } }
+    else if (aIdx > 0) { aIdx--; load(); }
+  } else if (e.key === 'ArrowRight') {
+    if (e.shiftKey) { if (pIdx < participants.length - 1) { pIdx++; load(); } }
+    else if (aIdx < appNames.length - 1) { aIdx++; load(); }
+  }
+});
+</script>
+</body>
+</html>
