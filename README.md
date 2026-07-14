@@ -11,6 +11,13 @@ tracking working, then follow the same recipe to add it to your own task.
 
 ---
 
+**Giving a demo or onboarding someone?**
+[`docs/walkthrough.md`](docs/walkthrough.md) is the guided tour — run the
+demos, be a participant, inspect the data, add tracking to your own task —
+with every command included, in order.
+
+---
+
 ## Try the demo
 
 You will need:
