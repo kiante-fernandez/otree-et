@@ -98,11 +98,18 @@ def run(csv_path: pathlib.Path) -> int:
         stats = page.text_content("#statsPanel") or ""
         assert_("Samples" in stats and "Hz" in stats, "the recording panel is populated")
 
-        print("\n[3/4] ROI dwell table (when the export carries rectangles)")
-        has_rois = page.evaluate("current && current.roiNames.length > 0")
+        print("\n[3/4] ROI overlay (when the export carries rectangles)")
+        has_rois = page.evaluate("current && current.rois.length > 0")
         if has_rois:
-            rows = page.locator("#dwellBody tr").count()
-            assert_(rows > 0, f"dwell table lists the recorded regions ({rows})")
+            # The overlay must be real drawn ink: toggling it off changes the canvas.
+            with_rois = canvas_ink()
+            page.uncheck("#showRois")
+            page.wait_for_timeout(150)
+            without_rois = canvas_ink()
+            page.check("#showRois")
+            page.wait_for_timeout(150)
+            assert_(with_rois > without_rois,
+                    f"the recorded regions are drawn ({with_rois} vs {without_rois} inked pixels)")
         else:
             print("  (this export has no ROI rectangles; skipped)")
 

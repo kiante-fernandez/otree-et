@@ -71,12 +71,6 @@
   .panel h2 { font-size: 0.75rem; color: #666; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; margin-bottom: 8px; }
   .stat-row { display: flex; justify-content: space-between; padding: 2px 0; color: #666; }
   .stat-row b { color: #1a1a1a; font-weight: 600; font-variant-numeric: tabular-nums; }
-  table.dwell { width: 100%; border-collapse: collapse; }
-  table.dwell td { padding: 3px 0; color: #666; font-variant-numeric: tabular-nums; }
-  table.dwell td:last-child { text-align: right; color: #1a1a1a; font-weight: 600; }
-  table.dwell tr.active td { color: #1a1a1a; }
-  table.dwell tr.active td:first-child { font-weight: 600; }
-  .dwell-bar { height: 4px; background: #3b6fc4; border-radius: 2px; margin-top: 1px; }
 
   .legend { display: flex; gap: 16px; margin: 10px 0 0; font-size: 0.8rem; color: #666; flex-wrap: wrap; }
   .legend-item { display: flex; align-items: center; gap: 6px; }
@@ -166,10 +160,6 @@
         <div class="panel">
           <h2>Recording</h2>
           <div id="statsPanel"></div>
-        </div>
-        <div class="panel">
-          <h2>Dwell by region <span id="dwellNote" style="text-transform:none;font-weight:400;"></span></h2>
-          <table class="dwell"><tbody id="dwellBody"></tbody></table>
         </div>
       </div>
     </div>
@@ -328,25 +318,10 @@ function prepare(entry) {
     for (const snap of rois) { if ((snap.t_perf || 0) <= t) s = snap; else break; }
     return s;
   };
-  const roiNames = [...new Set(rois.flatMap((snap) => snap.items.map((i) => i.name)))];
-  for (const s of samples) {
-    s.roi = null;
-    if (!s.open || s.x === null) continue;
-    const snap = snapAt(s.t);
-    if (!snap) continue;
-    // Smallest hit wins, so a payoff span inside a cell beats the cell.
-    let best = null;
-    for (const it of snap.items) {
-      if (s.x >= it.x && s.x <= it.x + it.w && s.y >= it.y && s.y <= it.y + it.h) {
-        if (!best || it.w * it.h < best.w * best.h) best = it;
-      }
-    }
-    if (best) s.roi = best.name;
-  }
 
   const t0 = samples.length ? samples[0].t : 0;
   const t1 = samples.length ? samples[samples.length - 1].t : 1;
-  return { ...entry, samples, rois, roiNames, snapAt, vw, vh, viewportNote, t0, t1 };
+  return { ...entry, samples, rois, snapAt, vw, vh, viewportNote, t0, t1 };
 }
 
 /* ---------------- Navigation ---------------------------------------------- */
@@ -403,7 +378,6 @@ function load() {
     ctx.fillStyle = '#999'; ctx.font = '14px sans-serif'; ctx.textAlign = 'center';
     ctx.fillText('No samples recorded for this participant on this task.', canvas.width / 2, canvas.height / 2);
     $('statsPanel').innerHTML = '';
-    $('dwellBody').innerHTML = '';
     $('timeDisplay').textContent = '–';
     return;
   }
@@ -456,9 +430,6 @@ function draw() {
   }
 
   // ROI rectangles from the snapshot current at the playhead
-  const dwell = new Map();
-  let activeRoi = null;
-
   const visible = current.samples.filter((s) => s.t <= playT);
   const last = visible[visible.length - 1] || null;
 
@@ -498,7 +469,6 @@ function draw() {
   }
 
   for (const s of visible) {
-    if (s.roi) dwell.set(s.roi, (dwell.get(s.roi) || 0) + 1);
     if (s.x === null) continue;
     const p = (s.t - current.t0) / span;
     const g = TRAIL_DARK.map((d, j) => Math.round(d + (TRAIL_LIGHT[j] - d) * p));
@@ -517,7 +487,6 @@ function draw() {
 
   // the playhead: current gaze, or an honest face-lost note
   if (last) {
-    activeRoi = last.roi;
     if (last.x !== null) {
       ctx.beginPath();
       ctx.fillStyle = 'rgba(230, 57, 70, 0.18)';
@@ -535,21 +504,8 @@ function draw() {
     }
   }
 
-  // time display and dwell table
   $('timeDisplay').textContent =
     `${((playT - current.t0) / 1000).toFixed(2)}s / ${((current.t1 - current.t0) / 1000).toFixed(2)}s`;
-
-  const totalOpen = visible.filter((s) => s.open).length || 1;
-  const rows = current.roiNames
-    .map((name) => ({ name, n: dwell.get(name) || 0 }))
-    .sort((a, b) => b.n - a.n);
-  const maxN = rows.length ? Math.max(1, rows[0].n) : 1;
-  $('dwellNote').textContent = current.roiNames.length ? '' : '(none recorded)';
-  $('dwellBody').innerHTML = rows.map((r) => `
-    <tr class="${r.name === activeRoi ? 'active' : ''}">
-      <td>${r.name}<div class="dwell-bar" style="width:${Math.round(100 * r.n / maxN)}%"></div></td>
-      <td>${r.n}<span style="color:#999;font-weight:400;"> (${Math.round(100 * r.n / totalOpen)}%)</span></td>
-    </tr>`).join('');
 }
 
 /* ---------------- Playback ------------------------------------------------- */
